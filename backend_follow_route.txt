@@ -1,0 +1,65 @@
+import { NextResponse } from 'next/server';
+import pool from '@/lib/db'; 
+import { cookies } from 'next/headers';
+
+export async function POST(
+  request: Request,
+  { params }: { params: { userId: string } }
+) {
+  try {
+    const targetUserId = params.userId;
+    
+    // Coba ambil dari next/headers cookies
+    const cookieStore = cookies();
+    let myUserId = cookieStore.get('user_id')?.value;
+
+    // Fallback: ambil manual dari raw Cookie header jika next/headers gagal membaca
+    if (!myUserId) {
+      const cookieHeader = request.headers.get('cookie') || '';
+      const match = cookieHeader.match(/user_id=([^;]+)/);
+      if (match) {
+        myUserId = match[1];
+      }
+    }
+
+    if (!myUserId) {
+      return NextResponse.json({ success: false, message: 'Unauthorized (user_id not found in cookie)' }, { status: 401 });
+    }
+
+    // Pastikan tabel followers ada, jika belum buatkan
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS followers (
+        follower_id INT NOT NULL,
+        following_id INT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (follower_id, following_id)
+      )
+    `);
+
+    // Cek apakah sudah follow
+    const [existing]: any = await pool.query(
+      `SELECT 1 FROM followers WHERE follower_id = ? AND following_id = ?`,
+      [myUserId, targetUserId]
+    );
+
+    if (existing.length > 0) {
+      // Jika sudah follow, maka UNFOLLOW
+      await pool.query(
+        `DELETE FROM followers WHERE follower_id = ? AND following_id = ?`,
+        [myUserId, targetUserId]
+      );
+      return NextResponse.json({ success: true, message: 'Unfollowed', isFollowing: false });
+    } else {
+      // Jika belum follow, maka FOLLOW
+      await pool.query(
+        `INSERT INTO followers (follower_id, following_id) VALUES (?, ?)`,
+        [myUserId, targetUserId]
+      );
+      return NextResponse.json({ success: true, message: 'Followed', isFollowing: true });
+    }
+
+  } catch (error: any) {
+    console.error('Toggle follow error:', error);
+    return NextResponse.json({ success: false, message: 'Server error' }, { status: 500 });
+  }
+}

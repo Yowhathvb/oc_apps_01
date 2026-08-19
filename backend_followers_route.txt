@@ -1,0 +1,34 @@
+import { NextResponse } from 'next/server';
+import pool from '@/lib/db'; 
+
+export async function GET(
+  request: Request,
+  { params }: { params: { userId: string } }
+) {
+  try {
+    const targetUserId = params.userId;
+
+    // Pastikan tabel followers ada
+    try {
+      await pool.query('SELECT 1 FROM followers LIMIT 1');
+    } catch (e) {
+      return NextResponse.json({ success: true, data: [] });
+    }
+
+    // Ambil daftar pengikut (followers)
+    // Pengikut adalah orang yang mengikuti targetUserId
+    const [followers]: any = await pool.query(
+      `SELECT u.id, u.name, u.username, u.profile_pic as avatar 
+       FROM followers f
+       JOIN users u ON f.follower_id = u.id
+       WHERE f.following_id = ?
+       ORDER BY f.created_at DESC`,
+      [targetUserId]
+    );
+
+    return NextResponse.json({ success: true, data: followers });
+  } catch (error: any) {
+    console.error('Get followers error:', error);
+    return NextResponse.json({ success: false, message: 'Server error' }, { status: 500 });
+  }
+}

@@ -1,0 +1,107 @@
+import { NextResponse } from 'next/server';
+import pool from '@/lib/db'; 
+import { verifyAuth } from '@/lib/auth';
+import { cookies } from 'next/headers';
+
+export async function GET(
+  request: Request,
+  { params }: { params: { userId: string } }
+) {
+  try {
+    const targetUserId = params.userId;
+    const { searchParams } = new URL(request.url);
+    const type = searchParams.get('type') || 'posts';
+
+    let query = '';
+    let queryParams: any[] = [];
+
+    // Base query select
+    const selectQuery = `
+      SELECT p.*, 
+             u.name as authorName, u.username as authorUsername, u.profile_pic as authorAvatar
+      FROM posts p
+      JOIN users u ON p.user_id = u.id
+    `;
+
+    if (type === 'posts') {
+      // User's own posts (image/text)
+      query = `
+        ${selectQuery}
+        WHERE p.user_id = ? AND (p.media_type = 'image' OR p.media_type = 'text' OR p.media_type IS NULL)
+        ORDER BY p.created_at DESC
+      `;
+      queryParams = [targetUserId];
+    } else if (type === 'reels') {
+      // User's own reels (video)
+      query = `
+        ${selectQuery}
+        WHERE p.user_id = ? AND p.media_type = 'video'
+        ORDER BY p.created_at DESC
+      `;
+      queryParams = [targetUserId];
+    } else if (type === 'likes') {
+      // Posts liked by the user
+      query = `
+        ${selectQuery}
+        JOIN post_likes pl ON p.id = pl.post_id
+        WHERE pl.user_id = ?
+        ORDER BY pl.created_at DESC
+      `;
+      queryParams = [targetUserId];
+    } else if (type === 'reposts_posts') {
+      // Posts reposted by the user
+      query = `
+        ${selectQuery}
+        JOIN post_shares ps ON p.id = ps.post_id
+        WHERE ps.user_id = ? AND (p.media_type = 'image' OR p.media_type = 'text' OR p.media_type IS NULL)
+        ORDER BY ps.created_at DESC
+      `;
+      queryParams = [targetUserId];
+    } else if (type === 'reposts_reels') {
+      // Reels reposted by the user
+      query = `
+        ${selectQuery}
+        JOIN post_shares ps ON p.id = ps.post_id
+        WHERE ps.user_id = ? AND p.media_type = 'video'
+        ORDER BY ps.created_at DESC
+      `;
+      queryParams = [targetUserId];
+    } else {
+      // fallback or saved
+      return NextResponse.json({ success: true, data: [] });
+    }
+
+    try {
+      const [results]: any = await pool.query(query, queryParams);
+      
+      // Formatting the response to match PostModel
+      const formattedPosts = results.map((post: any) => ({
+        id: post.id,
+        user_id: post.user_id,
+        caption: post.caption || '',
+        media_url: post.media_url,
+        media_type: post.media_type || 'text',
+        likes_count: post.likes_count || 0,
+        comments_count: post.comments_count || 0,
+        shares_count: post.shares_count || 0,
+        created_at: post.created_at,
+        is_liked: false, // We'd need to check this based on logged in user, mock for now
+        authorName: post.authorName,
+        authorAvatar: post.authorAvatar,
+      }));
+
+      return NextResponse.json({ success: true, data: formattedPosts });
+    } catch (e: any) {
+      if (e.code === 'ER_NO_SUCH_TABLE') {
+        // Table doesn't exist (e.g. post_shares or post_likes might not exist yet)
+        console.warn(`Table missing for type: ${type}`);
+        return NextResponse.json({ success: true, data: [] });
+      }
+      throw e;
+    }
+
+  } catch (error: any) {
+    console.error('Get user content error:', error);
+    return NextResponse.json({ success: false, message: 'Server error' }, { status: 500 });
+  }
+}

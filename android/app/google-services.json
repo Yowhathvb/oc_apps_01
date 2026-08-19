@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "439520151153",
+    "project_id": "oc-platform-zhar",
+    "storage_bucket": "oc-platform-zhar.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:439520151153:android:f69b866d3816e4d0257dd0",
+        "android_client_info": {
+          "package_name": "com.ourchat.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyByZ95BR99642AocTVLYA-jkj5su4eK8Rg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

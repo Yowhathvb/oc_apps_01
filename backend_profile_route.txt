@@ -1,0 +1,73 @@
+import { NextResponse } from 'next/server';
+import pool from '@/lib/db'; 
+import { cookies } from 'next/headers';
+
+export async function GET(
+  request: Request,
+  { params }: { params: { userId: string } }
+) {
+  try {
+    const targetUserId = params.userId;
+    
+    // Coba ambil dari next/headers cookies
+    const cookieStore = cookies();
+    let myUserId = cookieStore.get('user_id')?.value;
+
+    // Fallback: ambil manual dari raw Cookie header jika next/headers gagal membaca
+    if (!myUserId) {
+      const cookieHeader = request.headers.get('cookie') || '';
+      const match = cookieHeader.match(/user_id=([^;]+)/);
+      if (match) {
+        myUserId = match[1];
+      }
+    }
+
+    // 1. Ambil data user
+    const [userRows]: any = await pool.query(
+      `SELECT id, name, username, profile_pic as avatar, bio 
+       FROM users WHERE id = ?`,
+      [targetUserId]
+    );
+
+    if (userRows.length === 0) {
+      return NextResponse.json({ success: false, message: 'User not found' }, { status: 404 });
+    }
+
+    const userProfile = userRows[0];
+
+    // 2. Cek apakah saya mengikuti user ini
+    let isFollowing = false;
+    if (myUserId) {
+      try {
+        const [followRows]: any = await pool.query(
+          `SELECT 1 FROM followers WHERE follower_id = ? AND following_id = ?`,
+          [myUserId, targetUserId]
+        );
+        isFollowing = followRows.length > 0;
+      } catch (err: any) {
+        if (err.code === 'ER_NO_SUCH_TABLE') {
+          // Abaikan jika tabel followers belum dibuat
+          isFollowing = false;
+        }
+      }
+    }
+
+    // 3. Ambil postingan milik user ini
+    const [postRows]: any = await pool.query(
+      `SELECT p.*, u.name as authorName, u.username as authorUsername, u.profile_pic as authorAvatar
+       FROM posts p 
+       JOIN users u ON p.user_id = u.id 
+       WHERE p.user_id = ?
+       ORDER BY p.created_at DESC`,
+      [targetUserId]
+    );
+
+    userProfile.isFollowing = isFollowing;
+    userProfile.posts = postRows;
+
+    return NextResponse.json({ success: true, data: userProfile });
+  } catch (error: any) {
+    console.error('Get user profile error:', error);
+    return NextResponse.json({ success: false, message: 'Server error' }, { status: 500 });
+  }
+}
