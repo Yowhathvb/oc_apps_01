@@ -5,6 +5,7 @@ import '../services/call_manager.dart';
 import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
 import '../services/notification_service.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'store_dashboard_screen.dart';
 
 class MoreScreen extends StatefulWidget {
   const MoreScreen({super.key});
@@ -86,13 +87,13 @@ class _MoreScreenState extends State<MoreScreen> {
     }
   }
 
-  Widget _buildMenuItem(IconData icon, String title, String subtitle, {Color iconColor = Colors.white}) {
+  Widget _buildMenuItem(IconData icon, String title, String subtitle, {Color iconColor = Colors.white, VoidCallback? onTap}) {
     return ListTile(
       leading: Icon(icon, size: 28, color: iconColor),
       title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
       subtitle: Text(subtitle, style: const TextStyle(fontSize: 12, color: Colors.grey)),
       trailing: const Icon(Icons.chevron_right, color: Colors.grey),
-      onTap: () {
+      onTap: onTap ?? () {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('$title - Segera Hadir!')),
         );
@@ -185,7 +186,15 @@ class _MoreScreenState extends State<MoreScreen> {
                     ),
                   ),
                   _buildMenuItem(Icons.apps, 'Mini Apps', 'Akses aplikasi tambahan', iconColor: Colors.blue),
-                  _buildMenuItem(Icons.storefront, 'Admin Marketplace', 'Kelola toko dan pesanan', iconColor: Colors.orange),
+                  _buildMenuItem(
+                    Icons.storefront, 
+                    'Admin Marketplace', 
+                    'Kelola toko dan pesanan', 
+                    iconColor: Colors.orange,
+                    onTap: () {
+                      Navigator.push(context, MaterialPageRoute(builder: (context) => const StoreDashboardScreen()));
+                    },
+                  ),
                   _buildMenuItem(Icons.payment, 'Our Pay', 'Ringkasan keuangan', iconColor: Colors.green),
 
                   // Menu Umum

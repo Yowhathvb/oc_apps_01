@@ -779,4 +779,138 @@ static Future<Map<String, dynamic>> getCallToken(String callId) async {
       return {'success': false, 'message': e.toString()};
     }
   }
-}
+
+  // --- MARKETPLACE API ---
+  static Future<Map<String, dynamic>> getPublicProducts() async {
+    try {
+      final headers = await getAuthHeaders();
+      final response = await http.get(Uri.parse('$baseUrl/marketplace/public/products'), headers: headers);
+      if (response.statusCode == 200) {
+        return {'success': true, 'data': jsonDecode(response.body)['data'] ?? jsonDecode(response.body)};
+      }
+      return {'success': false, 'message': 'Gagal mengambil produk'};
+    } catch (e) {
+      return {'success': false, 'message': e.toString()};
+    }
+  }
+
+  static Future<Map<String, dynamic>> getProductDetail(String id) async {
+    try {
+      final headers = await getAuthHeaders();
+      final response = await http.get(Uri.parse('$baseUrl/marketplace/public/products/$id'), headers: headers);
+      if (response.statusCode == 200) {
+        return {'success': true, 'data': jsonDecode(response.body)['data'] ?? jsonDecode(response.body)};
+      }
+      return {'success': false, 'message': 'Gagal mengambil detail produk'};
+    } catch (e) {
+      return {'success': false, 'message': e.toString()};
+    }
+  }
+
+  static Future<Map<String, dynamic>> getCart() async {
+    try {
+      final headers = await getAuthHeaders();
+      final response = await http.get(Uri.parse('$baseUrl/marketplace/cart'), headers: headers);
+      if (response.statusCode == 200) {
+        return {'success': true, 'data': jsonDecode(response.body)};
+      }
+      return {'success': false, 'message': 'Gagal mengambil keranjang'};
+    } catch (e) {
+      return {'success': false, 'message': e.toString()};
+    }
+  }
+
+  static Future<Map<String, dynamic>> addToCart(String productId, int quantity) async {
+    try {
+      final headers = await getAuthHeaders();
+      final response = await http.post(
+        Uri.parse('$baseUrl/marketplace/cart'), 
+        headers: headers,
+        body: jsonEncode({'productId': productId, 'quantity': quantity})
+      );
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return {'success': true, 'data': jsonDecode(response.body)};
+      }
+      return {'success': false, 'message': 'Gagal menambah ke keranjang'};
+    } catch (e) {
+      return {'success': false, 'message': e.toString()};
+    }
+  }
+
+  static Future<Map<String, dynamic>> checkout(String address, String phone, String notes) async {
+    try {
+      final headers = await getAuthHeaders();
+      final response = await http.post(
+        Uri.parse('$baseUrl/marketplace/checkout'), 
+        headers: headers,
+        body: jsonEncode({
+          'paymentMethod': 'COD',
+          'address': address,
+          'phone': phone,
+          'notes': notes
+        })
+      );
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return {'success': true, 'data': jsonDecode(response.body)};
+      }
+      return {'success': false, 'message': 'Gagal melakukan checkout'};
+    } catch (e) {
+      return {'success': false, 'message': e.toString()};
+    }
+  }
+
+  static Future<Map<String, dynamic>> getStoreStatus() async {
+    try {
+      final headers = await getAuthHeaders();
+      final response = await http.get(Uri.parse('$baseUrl/marketplace/status'), headers: headers);
+      if (response.statusCode == 200) {
+        return {'success': true, 'data': jsonDecode(response.body)};
+      }
+      return {'success': false, 'message': 'Gagal mengambil status toko'};
+    } catch (e) {
+      return {'success': false, 'message': e.toString()};
+    }
+  }
+
+  static Future<Map<String, dynamic>> registerStore(String name, String description) async {
+    try {
+      final headers = await getAuthHeaders();
+      final response = await http.post(
+        Uri.parse('$baseUrl/marketplace/register'), 
+        headers: headers,
+        body: jsonEncode({'name': name, 'description': description})
+      );
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return {'success': true, 'data': jsonDecode(response.body)};
+      }
+      return {'success': false, 'message': 'Gagal mendaftar toko'};
+    } catch (e) {
+      return {'success': false, 'message': e.toString()};
+    }
+  }
+
+  static Future<Map<String, dynamic>> addProduct(Map<String, dynamic> data, String? imagePath) async {
+    try {
+      final headers = await getAuthHeaders();
+      
+      var request = http.MultipartRequest('POST', Uri.parse('$baseUrl/marketplace/products'));
+      // Remove content-type from headers because multipart request sets its own boundary
+      headers.remove('Content-Type');
+      request.headers.addAll(headers);
+      
+      data.forEach((key, value) {
+        request.fields[key] = value.toString();
+      });
+      
+      if (imagePath != null) {
+        request.files.add(await http.MultipartFile.fromPath('file', imagePath));
+      }
+
+      var response = await request.send();
+      var responseString = await response.stream.bytesToString();
+      return {'success': response.statusCode == 200 || response.statusCode == 201, 'data': jsonDecode(responseString)};
+    } catch (e) {
+      return {'success': false, 'message': e.toString()};
+    }
+  }
+}

@@ -6,6 +6,7 @@ import 'call_history_screen.dart';
 import 'more_screen.dart';
 import 'story_screen.dart';
 import 'media_screen.dart';
+import 'marketplace_home_screen.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -34,7 +35,7 @@ class _MainScreenState extends State<MainScreen> {
     const CallHistoryScreen(), // Halaman Riwayat Panggilan
     const StoryScreen(), // Halaman Status (Story)
     const MediaScreen(), // Halaman Media (Threads-like)
-    const Center(child: Text("Marketplace")), // Placeholder Marketplace
+    const MarketplaceHomeScreen(), // Marketplace Utama
     const MoreScreen(), // Halaman Lainnya
   ];
 
