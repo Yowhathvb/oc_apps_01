@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
-import '../utils/mention_input.dart';
 import 'dart:io';
+import 'custom_gallery_picker.dart';
 import '../services/api_service.dart';
 
 class CreatePostScreen extends StatefulWidget {
@@ -28,11 +27,23 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   }
 
   Future<void> _pickImage() async {
-    final picker = ImagePicker();
-    final pickedFile = await picker.pickImage(source: ImageSource.gallery);
-    if (pickedFile != null) {
+    final pickedFile = await Navigator.push(
+      context,
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) => const CustomGalleryPicker(),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          const begin = Offset(0.0, 1.0);
+          const end = Offset.zero;
+          const curve = Curves.easeOutQuart;
+          var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
+          var offsetAnimation = animation.drive(tween);
+          return SlideTransition(position: offsetAnimation, child: child);
+        },
+      ),
+    );
+    if (pickedFile != null && pickedFile is File) {
       setState(() {
-        _selectedImage = File(pickedFile.path);
+        _selectedImage = pickedFile;
         _canPost = true;
       });
     }
@@ -228,7 +239,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                     onPressed: (_canPost && !_isUploading) ? _uploadPost : null,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: primaryColor,
-                      disabledBackgroundColor: primaryColor.withOpacity(0.5),
+                      disabledBackgroundColor: primaryColor.withValues(alpha: 0.5),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(20)
                       )

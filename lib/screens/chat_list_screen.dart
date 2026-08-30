@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:socket_io_client/socket_io_client.dart' as IO;
-import '../services/api_service.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:socket_io_client/socket_io_client.dart' as io;
 import '../services/api_service.dart';
 import '../services/database_helper.dart';
 import 'chat_screen.dart';
 import 'add_contact_screen.dart';
+import 'create_group_screen.dart';
 
 class ChatListScreen extends StatefulWidget {
   const ChatListScreen({super.key});
@@ -20,7 +19,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
   bool _isLoading = true;
   String? _error;
   String? _myUserId;
-  IO.Socket? _socket;
+  io.Socket? _socket;
 
   @override
   void initState() {
@@ -37,7 +36,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
     final uri = Uri.parse(ApiService.baseUrl);
     final socketUrl = '${uri.scheme}://${uri.host}:4000';
 
-    _socket = IO.io(socketUrl, <String, dynamic>{
+    _socket = io.io(socketUrl, <String, dynamic>{
       'transports': ['websocket'],
       'autoConnect': false,
       'forceNew': true,
@@ -126,6 +125,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
           'last_message_time': room['last_message_time'],
           'room_id': room['id'].toString(),
           'is_saved': isSaved,
+          'is_group': room['isGroup'] == true || room['is_group'] == true || room['type'] == 'group',
         });
       }
 
@@ -142,14 +142,16 @@ class _ChatListScreenState extends State<ChatListScreen> {
             'last_message_time': null,
             'room_id': null,
             'is_saved': true,
+            'is_group': false,
           });
         }
       }
 
       // Sort by time (descending), nulls last
       combinedList.sort((a, b) {
-        if (a['last_message_time'] == null && b['last_message_time'] == null)
+        if (a['last_message_time'] == null && b['last_message_time'] == null) {
           return 0;
+        }
         if (a['last_message_time'] == null) return 1;
         if (b['last_message_time'] == null) return -1;
         final dateA = DateTime.parse(a['last_message_time']);
@@ -182,7 +184,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
   Future<void> _handleChatTap(Map<String, dynamic> item) async {
     if (item['room_id'] != null) {
       // Room already exists, open directly
-      _navigateToChat(item['room_id'], item['display_name'], item['phone']);
+      _navigateToChat(item['room_id'], item['display_name'], item['phone'], item['is_group'] ?? false);
     } else {
       // Room doesn't exist yet, need to create via API
       showDialog(
@@ -230,7 +232,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
     }
   }
 
-  void _navigateToChat(String roomId, String displayName, String otherPhone) {
+  void _navigateToChat(String roomId, String displayName, String otherPhone, [bool isGroup = false]) {
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -238,6 +240,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
           roomId: roomId,
           otherUserName: displayName,
           otherUserPhone: otherPhone,
+          isGroup: isGroup,
         ),
       ),
     ).then((_) {
@@ -256,7 +259,23 @@ class _ChatListScreenState extends State<ChatListScreen> {
         foregroundColor: Colors.white,
         elevation: 0,
         actions: [
-          IconButton(icon: const Icon(Icons.refresh), onPressed: _fetchData),
+          IconButton(
+            icon: const Icon(Icons.group_add),
+            onPressed: () {
+              if (_myUserId != null) {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => CreateGroupScreen(myUserId: _myUserId!),
+                  ),
+                ).then((_) => _fetchData());
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('User ID tidak ditemukan. Harap tunggu.')),
+                );
+              }
+            },
+          ),
         ],
       ),
       body: _isLoading
@@ -287,18 +306,24 @@ class _ChatListScreenState extends State<ChatListScreen> {
 
                   return ListTile(
                     leading: CircleAvatar(
-                      backgroundColor: item['is_saved']
-                          ? Colors.green.shade100
-                          : Colors.blue.shade100,
-                      child: Text(
-                        item['display_name'].substring(0, 1).toUpperCase(),
-                        style: TextStyle(
-                          color: item['is_saved']
-                              ? Colors.green.shade800
-                              : primaryColor,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
+                      backgroundColor: item['is_group'] == true 
+                          ? Colors.orange.shade100
+                          : item['is_saved']
+                              ? Colors.green.shade100
+                              : Colors.blue.shade100,
+                      child: item['is_group'] == true
+                          ? Icon(Icons.group, color: Colors.orange.shade800)
+                          : Text(
+                              (item['display_name'] ?? '?').isNotEmpty 
+                                  ? item['display_name'].substring(0, 1).toUpperCase() 
+                                  : '?',
+                              style: TextStyle(
+                                color: item['is_saved']
+                                    ? Colors.green.shade800
+                                    : primaryColor,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                     ),
                     title: Text(
                       item['display_name'],

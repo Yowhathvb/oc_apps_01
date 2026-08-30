@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../services/api_service.dart';
 import '../services/database_helper.dart';
 import '../services/call_manager.dart';
 
@@ -197,6 +196,7 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
                           
                           final otherName = call['other_name'];
                           final otherPhone = call['other_phone'];
+                          final isVideo = call['type'] == 'video';
 
                           IconData statusIcon;
                           Color statusColor;
@@ -227,20 +227,36 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
                                 color: isMissed ? Colors.red : Colors.black87,
                               ),
                             ),
-                            subtitle: Row(
+                            subtitle: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Icon(statusIcon, size: 16, color: statusColor),
-                                const SizedBox(width: 4),
-                                Text(
-                                  timeStr,
-                                  style: const TextStyle(color: Colors.grey, fontSize: 13),
+                                if (otherPhone != null && otherPhone != 'Unknown Number')
+                                  Text(
+                                    otherPhone,
+                                    style: const TextStyle(fontSize: 13, color: Colors.black87),
+                                  ),
+                                Row(
+                                  children: [
+                                    Icon(statusIcon, size: 16, color: statusColor),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      timeStr,
+                                      style: const TextStyle(color: Colors.grey, fontSize: 13),
+                                    ),
+                                  ],
                                 ),
                               ],
                             ),
                             trailing: IconButton(
-                              icon: const Icon(Icons.call, color: primaryColor),
+                              icon: Icon(isVideo ? Icons.videocam : Icons.phone, color: primaryColor),
                               onPressed: () {
-                                // TODO: Implement direct calling from history
+                                if (otherPhone == null || otherPhone == 'Unknown Number') {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('Nomor tidak valid')),
+                                  );
+                                  return;
+                                }
+                                CallManager.instance.startCall(otherPhone, otherName ?? otherPhone, isVideo);
                               },
                             ),
                             onTap: () {
@@ -253,8 +269,8 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
       floatingActionButton: FloatingActionButton(
         backgroundColor: primaryColor,
         foregroundColor: Colors.white,
-        child: const Icon(Icons.add_call),
         onPressed: _showNewCallBottomSheet,
+        child: const Icon(Icons.add_call),
       ),
     );
   }

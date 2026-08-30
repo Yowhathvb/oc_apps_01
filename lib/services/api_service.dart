@@ -110,6 +110,23 @@ class ApiService {
     return prefs.getString('session_token');
   }
 
+  static Future<Map<String, dynamic>> checkAuth() async {
+    try {
+      final headers = await getAuthHeaders();
+      final response = await http.get(
+        Uri.parse('$baseUrl/auth/me'),
+        headers: headers,
+      );
+      if (response.statusCode == 200) {
+        return {'success': true, 'data': jsonDecode(response.body)};
+      } else {
+        return {'success': false, 'message': 'Unauthorized'};
+      }
+    } catch (e) {
+      return {'success': false, 'message': 'Connection error: $e'};
+    }
+  }
+
   // --- CHAT API ---
 
   static Future<Map<String, String>> getAuthHeaders() async {
@@ -126,6 +143,11 @@ class ApiService {
     }
     if (sessionToken != null) {
       headers['Authorization'] = 'Bearer $sessionToken';
+      if (userId != null) {
+        headers['Cookie'] = 'user_id=$userId; session_token=$sessionToken';
+      } else {
+        headers['Cookie'] = 'session_token=$sessionToken';
+      }
     }
 
     return headers;
@@ -253,6 +275,95 @@ class ApiService {
     }
   }
 
+  // --- GROUP CHAT API ---
+
+  static Future<Map<String, dynamic>> createGroupChat(String name, List<String> userIds) async {
+    try {
+      final headers = await getAuthHeaders();
+      final response = await http.post(
+        Uri.parse('$baseUrl/chat/groups'),
+        headers: headers,
+        body: jsonEncode({
+          'name': name,
+          'userIds': userIds.map((id) => int.tryParse(id) ?? 0).toList(),
+        }),
+      );
+
+      final data = jsonDecode(response.body);
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return {'success': true, 'groupId': data['groupId'] ?? data['id']};
+      } else {
+        return {'success': false, 'message': data['message'] ?? 'Gagal membuat grup'};
+      }
+    } catch (e) {
+      return {'success': false, 'message': 'Connection error: $e'};
+    }
+  }
+
+  static Future<Map<String, dynamic>> getGroupMessages(String groupId, {int limit = 30, int offset = 0}) async {
+    try {
+      final headers = await getAuthHeaders();
+      final response = await http.get(
+        Uri.parse('$baseUrl/chat/groups/$groupId/messages?limit=$limit&offset=$offset'),
+        headers: headers,
+      );
+
+      if (response.statusCode == 200) {
+        return {'success': true, 'data': jsonDecode(response.body)};
+      } else {
+        return {'success': false, 'message': 'Gagal mengambil pesan grup: ${response.statusCode}'};
+      }
+    } catch (e) {
+      return {'success': false, 'message': 'Connection error: $e'};
+    }
+  }
+
+  static Future<Map<String, dynamic>> sendGroupMessage(String groupId, String message) async {
+    try {
+      final headers = await getAuthHeaders();
+      final response = await http.post(
+        Uri.parse('$baseUrl/chat/groups/$groupId/messages'),
+        headers: headers,
+        body: jsonEncode({'message': message}),
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return {'success': true, 'data': jsonDecode(response.body)};
+      } else {
+        return {'success': false, 'message': 'Gagal mengirim pesan grup: ${response.statusCode}'};
+      }
+    } catch (e) {
+      return {'success': false, 'message': 'Connection error: $e'};
+    }
+  }
+
+  static Future<Map<String, dynamic>> uploadGroupMedia(String groupId, String filePath, String mediaType, {String caption = ''}) async {
+    try {
+      final headers = await getAuthHeaders();
+      var request = http.MultipartRequest('POST', Uri.parse('$baseUrl/chat/groups/$groupId/upload-media'));
+      request.headers.addAll(headers);
+      
+      request.fields['mediaType'] = mediaType;
+      if (caption.isNotEmpty) {
+        request.fields['caption'] = caption;
+      }
+      
+      request.files.add(await http.MultipartFile.fromPath('file', filePath));
+      
+      var response = await request.send();
+      var responseData = await response.stream.bytesToString();
+      var data = jsonDecode(responseData);
+      
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return {'success': true, 'data': data};
+      } else {
+        return {'success': false, 'message': data['message'] ?? 'Gagal mengirim media grup'};
+      }
+    } catch (e) {
+      return {'success': false, 'message': 'Connection error: $e'};
+    }
+  }
+
   // --- CALLS API ---
   
   static Future<Map<String, dynamic>> getCallHistory() async {
@@ -307,13 +418,13 @@ class ApiService {
     }
   }
 
-  static Future<Map<String, dynamic>> startCall(String phone) async {
+  static Future<Map<String, dynamic>> startCall(String phone, {String callType = 'audio'}) async {
     try {
       final headers = await getAuthHeaders();
       final response = await http.post(
         Uri.parse('$baseUrl/calls/start'),
         headers: headers,
-        body: jsonEncode({'phone': phone}),
+        body: jsonEncode({'phone': phone, 'callType': callType}),
       );
       if (response.statusCode == 201) {
         return {'success': true, 'data': jsonDecode(response.body)};
@@ -463,6 +574,10 @@ static Future<Map<String, dynamic>> getCallToken(String callId) async {
     };
   }
 
+  static Future<Map<String, dynamic>> deleteStory(String storyId) async { try { final headers = await getAuthHeaders(); final response = await http.delete(Uri.parse('$baseUrl/media/stories/$storyId'), headers: headers); if (response.statusCode == 200 || response.statusCode == 201) return {'success': true}; return {'success': false, 'message': 'Gagal hapus story'}; } catch (e) { return {'success': false, 'message': 'Terjadi kesalahan sistem'}; } }
+  static Future<Map<String, dynamic>> deleteMediaPost(String postId) async { try { final headers = await getAuthHeaders(); final response = await http.delete(Uri.parse('$baseUrl/media/posts/$postId'), headers: headers); if (response.statusCode == 200 || response.statusCode == 201) return jsonDecode(response.body); return {'success': false, 'message': 'Gagal menghapus postingan'}; } catch (e) { return {'success': false, 'message': 'Terjadi kesalahan sistem'}; } }
+
+  static Future<Map<String, dynamic>> updateProfile(String name, String about, [String? profilePicPath]) async { try { final headers = await getAuthHeaders(); var request = http.MultipartRequest('PUT', Uri.parse('$baseUrl/user/profile')); headers.remove('Content-Type'); request.headers.addAll(headers); request.fields['name'] = name; request.fields['about'] = about; if (profilePicPath != null && profilePicPath.isNotEmpty) { request.files.add(await http.MultipartFile.fromPath('profile_pic', profilePicPath)); } final response = await request.send(); final respStr = await response.stream.bytesToString(); return jsonDecode(respStr); } catch (e) { return {'success': false, 'message': 'Terjadi kesalahan sistem'}; } }
   static Future<Map<String, dynamic>> getStories() async {
     try {
       final headers = await getAuthHeaders();
@@ -807,6 +922,36 @@ static Future<Map<String, dynamic>> getCallToken(String callId) async {
     }
   }
 
+  static Future<Map<String, dynamic>> updateCartItemQuantity(String cartId, int quantity) async {
+    try {
+      final headers = await getAuthHeaders();
+      final response = await http.put(
+        Uri.parse('$baseUrl/marketplace/cart'), 
+        headers: headers,
+        body: jsonEncode({
+          'cartId': cartId,
+          'quantity': quantity,
+        }),
+      );
+      return jsonDecode(response.body);
+    } catch (e) {
+      return {'success': false, 'message': 'Terjadi kesalahan sistem'};
+    }
+  }
+
+  static Future<Map<String, dynamic>> deleteCartItem(String cartId) async {
+    try {
+      final headers = await getAuthHeaders();
+      final response = await http.delete(
+        Uri.parse('$baseUrl/marketplace/cart?id=$cartId'), 
+        headers: headers,
+      );
+      return jsonDecode(response.body);
+    } catch (e) {
+      return {'success': false, 'message': 'Terjadi kesalahan sistem'};
+    }
+  }
+
   static Future<Map<String, dynamic>> getCart() async {
     try {
       final headers = await getAuthHeaders();
@@ -820,13 +965,17 @@ static Future<Map<String, dynamic>> getCallToken(String callId) async {
     }
   }
 
-  static Future<Map<String, dynamic>> addToCart(String productId, int quantity) async {
+  static Future<Map<String, dynamic>> addToCart(String productId, int quantity, {Map<String, dynamic>? variants}) async {
     try {
       final headers = await getAuthHeaders();
+      final body = <String, dynamic>{'productId': productId, 'quantity': quantity};
+      if (variants != null) {
+        body['variants'] = variants;
+      }
       final response = await http.post(
         Uri.parse('$baseUrl/marketplace/cart'), 
         headers: headers,
-        body: jsonEncode({'productId': productId, 'quantity': quantity})
+        body: jsonEncode(body)
       );
       if (response.statusCode == 200 || response.statusCode == 201) {
         return {'success': true, 'data': jsonDecode(response.body)};
@@ -837,18 +986,97 @@ static Future<Map<String, dynamic>> getCallToken(String callId) async {
     }
   }
 
-  static Future<Map<String, dynamic>> checkout(String address, String phone, String notes) async {
+  static Future<Map<String, dynamic>> updateStoreProduct(String id, String name, String description, double price, String category, int stock, List<String> variants) async {
+    try {
+      final headers = await getAuthHeaders();
+      final response = await http.put(
+        Uri.parse('$baseUrl/marketplace/store/products/$id'),
+        headers: headers,
+        body: jsonEncode({
+          'name': name,
+          'description': description,
+          'price': price,
+          'category': category,
+          'stock': stock,
+          'variants': variants,
+        }),
+      );
+      if (response.statusCode == 200) {
+        return {'success': true, 'data': jsonDecode(response.body)};
+      }
+      return {'success': false, 'message': 'Gagal memperbarui produk'};
+    } catch (e) {
+      return {'success': false, 'message': e.toString()};
+    }
+  }
+
+  // --- STORE ORDERS API ---
+  
+  static Future<Map<String, dynamic>> getStoreOrders() async {
+    try {
+      final headers = await getAuthHeaders();
+      final response = await http.get(Uri.parse('$baseUrl/marketplace/store/orders'), headers: headers);
+      if (response.statusCode == 200) {
+        return {'success': true, 'data': jsonDecode(response.body)['data']};
+      }
+      return {'success': false, 'message': 'Gagal mengambil pesanan'};
+    } catch (e) {
+      return {'success': false, 'message': e.toString()};
+    }
+  }
+
+  static Future<Map<String, dynamic>> updateOrderStatus(int orderId, String status, {String? trackingNumber, String? proof}) async {
+    try {
+      final headers = await getAuthHeaders();
+      
+      if (proof != null && proof.isNotEmpty && !proof.startsWith('dummy_')) {
+        var request = http.MultipartRequest('PUT', Uri.parse('$baseUrl/marketplace/store/orders/$orderId'));
+        headers.remove('Content-Type');
+        request.headers.addAll(headers);
+        
+        request.fields['status'] = status;
+        if (trackingNumber != null) {
+          request.fields['tracking_number'] = trackingNumber;
+        }
+        request.files.add(await http.MultipartFile.fromPath('completion_proof', proof));
+        
+        var response = await request.send();
+        if (response.statusCode == 200) return {'success': true};
+        var responseString = await response.stream.bytesToString();
+        return {'success': false, 'message': 'Gagal mengubah status: $responseString'};
+      } else {
+        final body = <String, dynamic>{'status': status};
+        if (trackingNumber != null) body['tracking_number'] = trackingNumber;
+        
+        final response = await http.put(
+          Uri.parse('$baseUrl/marketplace/store/orders/$orderId'),
+          headers: headers,
+          body: jsonEncode(body),
+        );
+        if (response.statusCode == 200) {
+          return {'success': true};
+        }
+        return {'success': false, 'message': 'Gagal mengubah status'};
+      }
+    } catch (e) {
+      return {'success': false, 'message': e.toString()};
+    }
+  }
+
+  // --- MARKETPLACE ORDERS (BUYER) ---
+  
+  static Future<Map<String, dynamic>> checkout(List<String> cartItemIds, String address, String phone, String notes) async {
     try {
       final headers = await getAuthHeaders();
       final response = await http.post(
-        Uri.parse('$baseUrl/marketplace/checkout'), 
+        Uri.parse('$baseUrl/marketplace/checkout'),
         headers: headers,
         body: jsonEncode({
-          'paymentMethod': 'COD',
+          'cartItemIds': cartItemIds,
           'address': address,
           'phone': phone,
-          'notes': notes
-        })
+          'notes': notes,
+        }),
       );
       if (response.statusCode == 200 || response.statusCode == 201) {
         return {'success': true, 'data': jsonDecode(response.body)};
@@ -872,29 +1100,81 @@ static Future<Map<String, dynamic>> getCallToken(String callId) async {
     }
   }
 
-  static Future<Map<String, dynamic>> registerStore(String name, String description) async {
+  static Future<Map<String, dynamic>> registerStore(
+    String storeName,
+    String fullName,
+    String nik,
+    String ktpPhotoPath,
+    String ownerPhotoPath,
+  ) async {
     try {
       final headers = await getAuthHeaders();
-      final response = await http.post(
-        Uri.parse('$baseUrl/marketplace/register'), 
-        headers: headers,
-        body: jsonEncode({'name': name, 'description': description})
-      );
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        return {'success': true, 'data': jsonDecode(response.body)};
-      }
-      return {'success': false, 'message': 'Gagal mendaftar toko'};
+      var request = http.MultipartRequest('POST', Uri.parse('$baseUrl/marketplace/register'));
+      headers.remove('Content-Type');
+      request.headers.addAll(headers);
+      
+      request.fields['storeName'] = storeName;
+      request.fields['fullName'] = fullName;
+      request.fields['nik'] = nik;
+      
+      request.files.add(await http.MultipartFile.fromPath('ktpPhoto', ktpPhotoPath));
+      request.files.add(await http.MultipartFile.fromPath('ownerPhoto', ownerPhotoPath));
+
+      var response = await request.send();
+      var responseString = await response.stream.bytesToString();
+      return {'success': response.statusCode == 200 || response.statusCode == 201, 'data': jsonDecode(responseString)};
     } catch (e) {
       return {'success': false, 'message': e.toString()};
     }
   }
 
-  static Future<Map<String, dynamic>> addProduct(Map<String, dynamic> data, String? imagePath) async {
+  static Future<Map<String, dynamic>> getStoreProducts() async {
+    try {
+      final headers = await getAuthHeaders();
+      final response = await http.get(Uri.parse('$baseUrl/marketplace/products'), headers: headers);
+      if (response.statusCode == 200) {
+        return {'success': true, 'data': jsonDecode(response.body)['products']};
+      }
+      return {'success': false, 'message': 'Gagal mengambil daftar produk'};
+    } catch (e) {
+      return {'success': false, 'message': e.toString()};
+    }
+  }
+
+  static Future<Map<String, dynamic>> deleteStoreProduct(String id) async {
+    try {
+      final headers = await getAuthHeaders();
+      final response = await http.delete(Uri.parse('$baseUrl/marketplace/products?id=$id'), headers: headers);
+      if (response.statusCode == 200) {
+        return {'success': true};
+      }
+      return {'success': false, 'message': 'Gagal menghapus produk'};
+    } catch (e) {
+      return {'success': false, 'message': e.toString()};
+    }
+  }
+
+  static Future<List<String>> getProductCategories() async {
+    try {
+      final headers = await getAuthHeaders();
+      final response = await http.get(Uri.parse('$baseUrl/central-admin/categories'), headers: headers);
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['categories'] != null) {
+          return List<String>.from(data['categories'].map((c) => c['name'].toString()));
+        }
+      }
+      return ['Umum', 'Pakaian', 'Elektronik', 'Makanan', 'Lainnya']; // fallback
+    } catch (e) {
+      return ['Umum', 'Pakaian', 'Elektronik', 'Makanan', 'Lainnya'];
+    }
+  }
+
+  static Future<Map<String, dynamic>> addProduct(Map<String, dynamic> data, List<String> imagePaths) async {
     try {
       final headers = await getAuthHeaders();
       
       var request = http.MultipartRequest('POST', Uri.parse('$baseUrl/marketplace/products'));
-      // Remove content-type from headers because multipart request sets its own boundary
       headers.remove('Content-Type');
       request.headers.addAll(headers);
       
@@ -902,8 +1182,35 @@ static Future<Map<String, dynamic>> getCallToken(String callId) async {
         request.fields[key] = value.toString();
       });
       
-      if (imagePath != null) {
-        request.files.add(await http.MultipartFile.fromPath('file', imagePath));
+      for (var path in imagePaths) {
+        request.files.add(await http.MultipartFile.fromPath('media', path));
+      }
+
+      var response = await request.send();
+      var responseString = await response.stream.bytesToString();
+      return {'success': response.statusCode == 200 || response.statusCode == 201, 'data': jsonDecode(responseString)};
+    } catch (e) {
+      return {'success': false, 'message': e.toString()};
+    }
+  }
+
+  static Future<Map<String, dynamic>> editProduct(String productId, Map<String, dynamic> data, List<String> imagePaths, List<String> existingMedia) async {
+    try {
+      final headers = await getAuthHeaders();
+      
+      var request = http.MultipartRequest('PUT', Uri.parse('$baseUrl/marketplace/products'));
+      headers.remove('Content-Type');
+      request.headers.addAll(headers);
+      
+      request.fields['id'] = productId;
+      data.forEach((key, value) {
+        request.fields[key] = value.toString();
+      });
+      
+      request.fields['existingMedia'] = jsonEncode(existingMedia);
+
+      for (var path in imagePaths) {
+        request.files.add(await http.MultipartFile.fromPath('media', path));
       }
 
       var response = await request.send();

@@ -1,7 +1,6 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import '../models/post_model.dart';
-import 'package:timeago/timeago.dart' as timeago;
 import 'package:share_plus/share_plus.dart';
 import 'user_profile_screen.dart';
 import 'media_profile_screen.dart';
@@ -102,16 +101,22 @@ class _SinglePostScreenState extends State<SinglePostScreen> {
     final originalState = _post!.isLiked;
     setState(() {
       _post!.isLiked = !_post!.isLiked;
-      if (_post!.isLiked) _post!.likesCount++;
-      else _post!.likesCount--;
+      if (_post!.isLiked) {
+        _post!.likesCount++;
+      } else {
+        _post!.likesCount--;
+      }
     });
 
     final res = await ApiService.likePost(_post!.id);
     if (res['success'] != true && mounted) {
       setState(() {
         _post!.isLiked = originalState;
-        if (_post!.isLiked) _post!.likesCount++;
-        else _post!.likesCount--;
+        if (_post!.isLiked) {
+          _post!.likesCount++;
+        } else {
+          _post!.likesCount--;
+        }
       });
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Gagal mengubah like')));
     }
@@ -279,8 +284,11 @@ class _SinglePostScreenState extends State<SinglePostScreen> {
                                                 final originalCount = _post!.sharesCount;
                                                 setState(() { 
                                                   _post!.isShared = !_post!.isShared;
-                                                  if (_post!.isShared) _post!.sharesCount++;
-                                                  else _post!.sharesCount--;
+                                                  if (_post!.isShared) {
+                                                    _post!.sharesCount++;
+                                                  } else {
+                                                    _post!.sharesCount--;
+                                                  }
                                                 });
                                                 final res = await ApiService.repostPost(_post!.id);
                                                 if (res['success'] != true && mounted) {
@@ -301,8 +309,11 @@ class _SinglePostScreenState extends State<SinglePostScreen> {
                                                 final originalCount = _post!.savesCount;
                                                 setState(() { 
                                                   _post!.isSaved = !_post!.isSaved;
-                                                  if (_post!.isSaved) _post!.savesCount++;
-                                                  else _post!.savesCount--;
+                                                  if (_post!.isSaved) {
+                                                    _post!.savesCount++;
+                                                  } else {
+                                                    _post!.savesCount--;
+                                                  }
                                                 });
                                                 final res = await ApiService.savePost(_post!.id);
                                                 if (res['success'] != true && mounted) {

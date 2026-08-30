@@ -378,7 +378,7 @@ class _MediaScreenState extends State<MediaScreen> {
                       fit: BoxFit.cover,
                       width: double.infinity,
                       height: 250,
-                      errorBuilder: (_, __, ___) => Container(
+                      errorBuilder: (_, _, _) => Container(
                         height: 200,
                         color: Colors.grey[200],
                         child: const Center(child: Icon(Icons.broken_image, color: Colors.grey)),

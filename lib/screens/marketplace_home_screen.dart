@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import '../models/product_model.dart';
-import '../models/product_model.dart';
+import '../utils/format_utils.dart';
 import '../models/cart_model.dart';
 import 'product_detail_screen.dart';
 import 'cart_screen.dart';
 
 class MarketplaceHomeScreen extends StatefulWidget {
-  const MarketplaceHomeScreen({Key? key}) : super(key: key);
+  const MarketplaceHomeScreen({super.key});
 
   @override
   _MarketplaceHomeScreenState createState() => _MarketplaceHomeScreenState();
@@ -199,7 +199,7 @@ class _MarketplaceHomeScreenState extends State<MarketplaceHomeScreen> {
                                       ),
                                       const SizedBox(height: 4),
                                       Text(
-                                        'Rp ${product.price.toStringAsFixed(0)}',
+                                        FormatUtils.formatRupiah(product.price),
                                         style: TextStyle(color: Theme.of(context).primaryColor, fontWeight: FontWeight.w600),
                                       ),
                                     ],

@@ -1,0 +1,644 @@
+'use client'
+
+import React, { useState, useEffect, useRef } from 'react'
+import { useRouter, useParams } from 'next/navigation'
+import Link from 'next/link'
+import { io } from 'socket.io-client'
+import AudioPlayer from '@/app/components/AudioPlayer'
+
+interface Message {
+  id: any
+  sender_id: any
+  message: string
+  name: string
+  phone?: string
+  created_at: any
+  read?: boolean
+  status?: 'pending' | 'sent'
+  media_url?: string
+  media_type?: string
+  caption?: string
+}
+
+interface TempChatData {
+  otherUserId: string
+  otherUserName: string
+}
+
+export default function ChatPage() {
+  const router = useRouter()
+  const params = useParams()
+  const chatRoomId = params.chatRoomId as string
+
+  const [messages, setMessages] = useState<Message[]>([])
+  const [newMessage, setNewMessage] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [sending, setSending] = useState(false)
+  const [userId, setUserId] = useState<string | null>(null)
+  
+  const [otherUserName, setOtherUserName] = useState('User')
+  const [otherUserPhone, setOtherUserPhone] = useState<string | null>(null)
+  const [isTemp, setIsTemp] = useState(false)
+  const [tempChatData, setTempChatData] = useState<TempChatData | null>(null)
+  const [actualRoomId, setActualRoomId] = useState<string | null>(null)
+  
+  // Pagination & Scroll states
+  const [offset, setOffset] = useState(0)
+  const [hasMore, setHasMore] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
+  
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const containerRef = useRef<HTMLElement>(null)
+  const pollingRef = useRef<NodeJS.Timeout | null>(null)
+  const limit = 30;
+
+  const [isRecording, setIsRecording] = useState(false)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const audioChunksRef = useRef<Blob[]>([])
+  const [recordedAudioBlob, setRecordedAudioBlob] = useState<Blob | null>(null)
+  const [audioPreviewUrl, setAudioPreviewUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    const resolveUser = async () => {
+      try {
+        const localUser = localStorage.getItem('user')
+        if (localUser) {
+          const parsed = JSON.parse(localUser)
+          if (parsed?.id) {
+            setUserId(String(parsed.id))
+            return
+          }
+        }
+        const res = await fetch('/api/auth/me')
+        if (res.ok) {
+          const data = await res.json()
+          if (data?.user?.id) {
+            setUserId(String(data.user.id))
+            localStorage.setItem('user', JSON.stringify(data.user))
+            return
+          }
+        }
+      } catch (err) {
+        console.error('Auth check error:', err)
+      }
+      router.push('/login')
+    }
+
+    resolveUser()
+
+    if (chatRoomId.startsWith('temp_')) {
+      const tempData = sessionStorage.getItem('temp_chat')
+      if (tempData) {
+        const parsed = JSON.parse(tempData) as TempChatData
+        setTempChatData(parsed)
+        setOtherUserName(parsed.otherUserName)
+        setIsTemp(true)
+        setLoading(false)
+        sessionStorage.removeItem('temp_chat')
+      } else {
+        router.push('/chat')
+      }
+    }
+  }, [router, chatRoomId])
+
+  // Fetch Room Data & Initial Messages
+  const fetchMessages = async (currentOffset: number, isLoadingMore = false) => {
+    if (!userId || isTemp) return;
+    
+    try {
+      if (isLoadingMore) setLoadingMore(true)
+      const targetRoomId = actualRoomId || chatRoomId;
+      const res = await fetch(`/api/chat/${targetRoomId}/messages?limit=${limit}&offset=${currentOffset}`);
+      
+      if (res.status === 403) {
+        setError('Akses ditolak: Anda bukan bagian dari chat room ini');
+        setTimeout(() => router.push('/'), 2000);
+        return;
+      }
+      if (res.status === 401) {
+        localStorage.removeItem('user');
+        if (pollingRef.current) clearInterval(pollingRef.current);
+        window.location.href = '/login';
+        return;
+      }
+      if (!res.ok) throw new Error('Gagal memuat pesan');
+      
+      const data = await res.json();
+      const fetchedMessages = data.messages || [];
+      
+      if (fetchedMessages.length < limit) {
+        setHasMore(false);
+      }
+
+      // Format dates
+      const formatted = fetchedMessages.map((msg: any) => ({
+        ...msg,
+        created_at: new Date(msg.created_at)
+      }));
+
+      // Extract other user info
+      if (formatted.length > 0) {
+        const other = formatted.find((m: any) => String(m.sender_id) !== String(userId));
+        if (other) {
+          setOtherUserName(other.name || 'User');
+          if (other.phone) setOtherUserPhone(other.phone);
+        }
+      }
+
+      setMessages(prev => {
+        if (currentOffset === 0) {
+          // Merge with pending messages if any
+          const pending = prev.filter(m => m.status === 'pending');
+          
+          const newMsgList = [...formatted];
+          pending.forEach(p => {
+             // Avoid duplicate text appending (basic check)
+             if (!newMsgList.find(m => m.message === p.message && m.sender_id == p.sender_id)) {
+                 newMsgList.push(p);
+             }
+          });
+          return newMsgList;
+        } else {
+          // Prepend older messages
+          return [...formatted, ...prev];
+        }
+      });
+
+      if (!isLoadingMore && currentOffset === 0) {
+        setLoading(false);
+      }
+    } catch (err) {
+      console.error(err);
+      if (!isLoadingMore) setError('Gagal memuat pesan');
+    } finally {
+      if (isLoadingMore) setLoadingMore(false)
+    }
+  };
+
+  // Initial load
+  useEffect(() => {
+    if (userId && !isTemp) {
+      fetchMessages(0);
+    }
+  }, [userId, chatRoomId, actualRoomId, isTemp]);
+
+  // Socket.IO for new messages
+  useEffect(() => {
+    if (!userId || isTemp) return;
+    
+    const socketUrl = typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.hostname}:4000` : 'http://localhost:4000';
+    const socket = io(socketUrl, {
+      transports: ['websocket'],
+      forceNew: true
+    });
+
+    const joinRoom = () => {
+      socket.emit('join', actualRoomId || chatRoomId);
+    };
+
+    if (socket.connected) {
+      joinRoom();
+    }
+    socket.on('connect', joinRoom);
+
+    socket.on('messages:read', (data: any) => {
+      const readerId = data.readerId ? String(data.readerId) : null;
+      if (readerId && readerId !== String(userId)) {
+        setMessages(prev => prev.map(m => 
+          String(m.sender_id) === String(userId) && !m.read ? { ...m, read: true } : m
+        ));
+      }
+    })
+
+    socket.on('message', (newMsg: Message) => {
+      setMessages(prev => {
+        // Prevent duplicates
+        if (prev.find(m => m.id === newMsg.id)) return prev;
+        
+        // Remove pending message if this is the actual sent message
+        const withoutPending = prev.filter(m => !(m.status === 'pending' && m.message === newMsg.message));
+        
+        return [...withoutPending, newMsg];
+      });
+      // Scroll to bottom
+      setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, [userId, chatRoomId, actualRoomId, isTemp]);
+
+  // Handle Scroll for Pagination
+  const handleScroll = () => {
+    if (!containerRef.current || loadingMore || !hasMore) return;
+    if (containerRef.current.scrollTop === 0) {
+      const newOffset = offset + limit;
+      setOffset(newOffset);
+      
+      // Save scroll height before fetch
+      const previousScrollHeight = containerRef.current.scrollHeight;
+      
+      fetchMessages(newOffset, true).then(() => {
+        // Adjust scroll position after prepending items
+        if (containerRef.current) {
+          const currentScrollHeight = containerRef.current.scrollHeight;
+          containerRef.current.scrollTop = currentScrollHeight - previousScrollHeight;
+        }
+      });
+    }
+  };
+
+  // Auto-scroll to bottom only when a new message is added at the end (not when paginating)
+  useEffect(() => {
+    if (offset === 0) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [messages.length])
+
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault()
+    
+    if ((!newMessage.trim() && !recordedAudioBlob) || !userId) return
+    setSending(true)
+
+    if (recordedAudioBlob) {
+      const formData = new FormData()
+      formData.append('file', recordedAudioBlob, 'voicenote.webm')
+      formData.append('mediaType', 'audio')
+      formData.append('caption', 'Voice Note')
+
+      // Optimistic UI for VN
+      const tempId = 'temp-vn-' + Date.now()
+      const optimisticMsg: Message = {
+        id: tempId,
+        sender_id: userId,
+        message: 'Voice Note',
+        name: 'You',
+        created_at: new Date(),
+        status: 'pending',
+        media_type: 'audio'
+      }
+      setMessages(prev => [...prev, optimisticMsg])
+      setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
+
+      try {
+        let targetRoomId = actualRoomId || chatRoomId
+
+        if (isTemp && tempChatData && !actualRoomId) {
+          const createRes = await fetch('/api/chat/create-or-get', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              userId1: String(userId).trim(),
+              userId2: String(tempChatData.otherUserId).trim(),
+            }),
+          })
+          if (!createRes.ok) throw new Error('Gagal membuat chat room')
+          const createData = await createRes.json()
+          targetRoomId = createData.chatRoomId
+          setActualRoomId(targetRoomId)
+        }
+
+        const res = await fetch(`/api/chat/${targetRoomId}/upload-media`, {
+          method: 'POST',
+          body: formData,
+        })
+        if (!res.ok) throw new Error('Gagal mengirim Voice Note')
+        const resData = await res.json()
+        if (resData && resData.payload) {
+          const payload = resData.payload
+          setMessages(prev => prev.map(m => 
+            m.id === tempId ? { ...m, id: payload.id, status: 'sent', media_url: payload.media_url, created_at: new Date(payload.created_at) } : m
+          ))
+        }
+      } catch (err) {
+        setMessages(prev => prev.filter(m => m.id !== tempId))
+      }
+      
+      setRecordedAudioBlob(null)
+      setAudioPreviewUrl(null)
+      setSending(false)
+      return
+    }
+
+    const messageText = newMessage.trim()
+    setNewMessage('')
+    
+    // Optimistic UI
+    const tempId = 'temp-' + Date.now();
+    const optimisticMsg: Message = {
+      id: tempId,
+      sender_id: userId,
+      message: messageText,
+      name: 'You',
+      created_at: new Date(),
+      status: 'pending'
+    };
+
+    // Add optimistically
+    setMessages(prev => [...prev, optimisticMsg]);
+    
+    // Auto-scroll instantly
+    setTimeout(() => {
+       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }, 100);
+
+    try {
+      let targetRoomId = actualRoomId || chatRoomId
+
+      if (isTemp && tempChatData && !actualRoomId) {
+        const createRes = await fetch('/api/chat/create-or-get', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId1: String(userId).trim(),
+            userId2: String(tempChatData.otherUserId).trim(),
+          }),
+        })
+
+        if (!createRes.ok) throw new Error('Gagal membuat chat room')
+        const createData = await createRes.json()
+        targetRoomId = createData.chatRoomId
+        setActualRoomId(targetRoomId)
+      }
+
+      const res = await fetch(`/api/chat/${targetRoomId}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: messageText }),
+      })
+
+      if (!res.ok) throw new Error('Gagal mengirim pesan')
+      const resData = await res.json()
+      
+      if (resData && resData.payload) {
+        const payload = resData.payload;
+        setMessages(prev => prev.map(m => 
+          m.id === tempId ? { ...m, id: payload.id, status: 'sent', created_at: new Date(payload.created_at) } : m
+        ));
+      }
+
+      if (isTemp && !actualRoomId) {
+        setIsTemp(false)
+        setActualRoomId(targetRoomId)
+        router.push(`/chat/${targetRoomId}`)
+      }
+    } catch (err) {
+      console.error('Error sending message:', err)
+      // Remove or mark as failed
+      setMessages(prev => prev.filter(m => m.id !== tempId));
+      setError(err instanceof Error ? err.message : 'Gagal mengirim');
+    }
+  }
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      mediaRecorderRef.current = new MediaRecorder(stream)
+      audioChunksRef.current = []
+
+      mediaRecorderRef.current.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data)
+      }
+
+      mediaRecorderRef.current.onstop = () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
+        setRecordedAudioBlob(audioBlob)
+        setAudioPreviewUrl(URL.createObjectURL(audioBlob))
+      }
+
+      mediaRecorderRef.current.start()
+      setIsRecording(true)
+    } catch (err) {
+      alert('Akses mikrofon ditolak atau tidak tersedia.')
+    }
+  }
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop()
+      setIsRecording(false)
+      mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop())
+    }
+  }
+
+  const cancelRecording = () => {
+    setRecordedAudioBlob(null)
+    setAudioPreviewUrl(null)
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-[#1a2f4e]">
+        <div className="text-white text-center">
+          <div className="animate-spin mb-4">⌛</div>
+          <p>Memuat pesan...</p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col h-screen bg-[#1a2f4e] text-white">
+      {/* Header */}
+      <header className="bg-[#2d4a6f] border-b border-[#3d5a7f] p-3 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Link href="/" className="text-white hover:bg-[#3d5a7f] p-2 rounded-lg transition" aria-label="Kembali">
+            ←
+          </Link>
+          <div className="w-10 h-10 rounded-full bg-sky-600 flex items-center justify-center text-white font-semibold">
+            {(() => {
+              const name = otherUserName || ''
+              if (name && name.trim()) {
+                const parts = name.trim().split(' ')
+                return (parts[0][0] || '').toUpperCase() + (parts[1]?.[0] || '')
+              }
+              if (otherUserPhone) return otherUserPhone.slice(-2)
+              return 'U'
+            })()}
+          </div>
+          <div className="flex-1">
+            <h1 className="text-lg font-semibold">{otherUserName}</h1>
+            <p className="text-xs text-gray-300">{otherUserPhone || chatRoomId}</p>
+          </div>
+        </div>
+        
+        {/* Voice Call Button */}
+        <button 
+          onClick={() => alert('Fitur panggilan suara akan segera hadir!')}
+          className="p-2 mr-2 bg-[#1a2f4e] hover:bg-[#3d5a7f] rounded-full transition shadow-sm border border-[#3d5a7f]"
+          title="Panggilan Suara"
+        >
+          📞
+        </button>
+      </header>
+
+      {/* Messages */}
+      <main 
+        ref={containerRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto p-4 space-y-4"
+      >
+        {error && (
+          <div className="text-center text-red-400 py-4">{error}</div>
+        )}
+        
+        {loadingMore && (
+           <div className="text-center text-gray-400 py-2 text-xs">Memuat pesan lama...</div>
+        )}
+
+        {messages.length === 0 ? (
+          <div className="text-center text-gray-400 py-8">
+            Belum ada pesan. Mulai percakapan sekarang!
+          </div>
+        ) : (
+          <>
+            {messages.map((msg, idx) => {
+              const msgDate = new Date(msg.created_at);
+              const prevMsg = idx > 0 ? messages[idx - 1] : null;
+              const prevDate = prevMsg ? new Date(prevMsg.created_at) : null;
+              
+              const showDateSeparator = !prevDate || msgDate.toDateString() !== prevDate.toDateString();
+              
+              const formatDateSeparator = (date: Date) => {
+                const today = new Date();
+                const yesterday = new Date(today);
+                yesterday.setDate(yesterday.getDate() - 1);
+                
+                if (date.toDateString() === today.toDateString()) return 'Hari Ini';
+                if (date.toDateString() === yesterday.toDateString()) return 'Kemarin';
+                return date.toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+              };
+              
+              const isMine = String(msg.sender_id) === String(userId);
+
+              return (
+                <div key={msg.id}>
+                  {showDateSeparator && (
+                    <div className="flex items-center gap-3 my-4 px-4">
+                      <div className="flex-1 h-px bg-gray-600"></div>
+                      <span className="text-xs text-gray-400 px-2 py-1 bg-[#2d4a6f] rounded-full">
+                        {formatDateSeparator(msgDate)}
+                      </span>
+                      <div className="flex-1 h-px bg-gray-600"></div>
+                    </div>
+                  )}
+                  <div className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`max-w-xs px-2 py-1 rounded-lg break-words break-all ${isMine ? 'bg-sky-600 text-white' : 'bg-[#2d4a6f] text-gray-100'} ${msg.media_type === 'audio' ? 'pb-2' : 'py-2 px-4'}`}>
+                      {msg.media_type === 'audio' && msg.media_url ? (
+                        <div className="pt-1">
+                          <AudioPlayer src={msg.media_url} />
+                        </div>
+                      ) : msg.media_type === 'audio' ? (
+                        <div className="flex items-center gap-2 px-2">
+                          <span className="animate-pulse">🎙️ Mengunggah...</span>
+                        </div>
+                      ) : msg.media_type === 'image' && msg.media_url ? (
+                        <div>
+                          <img src={msg.media_url} alt="Image" className="max-w-full rounded-lg mb-1" />
+                          {msg.message && <p className="text-sm">{msg.message}</p>}
+                        </div>
+                      ) : msg.media_type === 'video' && msg.media_url ? (
+                        <div>
+                          <video controls src={msg.media_url} className="max-w-full rounded-lg mb-1" />
+                          {msg.message && <p className="text-sm">{msg.message}</p>}
+                        </div>
+                      ) : msg.media_type === 'file' && msg.media_url ? (
+                        <div className="flex flex-col gap-1">
+                          <a href={msg.media_url} target="_blank" rel="noreferrer" className="underline text-sm font-semibold break-all text-sky-200">
+                            📄 {msg.message || 'Download File'}
+                          </a>
+                        </div>
+                      ) : (
+                        <p className="text-sm">{msg.message}</p>
+                      )}
+                      <p className={`text-xs mt-1 opacity-70 ${msg.media_type === 'audio' ? 'px-2 text-right' : ''}`}>
+                        <span className="inline-flex items-center gap-2">
+                          <span>
+                            {msgDate.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                          {isMine && (
+                            <span className="text-xs ml-1">
+                              {msg.status === 'pending' ? (
+                                <span title="Sedang mengirim">🕒</span>
+                              ) : msg.read ? (
+                                <span className="text-sky-400">✓✓</span>
+                              ) : (
+                                <span>✓</span>
+                              )}
+                            </span>
+                          )}
+                        </span>
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </>
+        )}
+        <div ref={messagesEndRef} />
+      </main>
+
+      {/* Input */}
+      <footer className="bg-[#1e3a5f] border-t border-[#2d4a6f] p-4 flex-shrink-0">
+        <form onSubmit={handleSendMessage} className="flex gap-2 items-center">
+          <button type="button" className="p-2 hover:bg-[#2d4a6f] rounded-lg transition text-xl">😊</button>
+          
+          {audioPreviewUrl ? (
+            <div className="flex-1 flex items-center bg-[#2d4a6f] border border-[#3d5a7f] rounded-full px-4 py-2 gap-3 transition">
+              <button 
+                type="button" 
+                onClick={cancelRecording} 
+                className="text-red-400 hover:text-red-500 flex-shrink-0"
+                title="Hapus"
+              >
+                <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+              </button>
+              <div className="flex-1 min-w-0">
+                <AudioPlayer src={audioPreviewUrl} />
+              </div>
+            </div>
+          ) : (
+            <input
+              type="text"
+              value={newMessage}
+              onChange={(e) => setNewMessage(e.target.value)}
+              placeholder={isRecording ? "Merekam suara..." : "Ketik pesan..."}
+              disabled={sending || isRecording}
+              className="flex-1 bg-[#2d4a6f] text-white px-4 py-3 rounded-full focus:outline-none border border-[#3d5a7f] focus:border-sky-400 disabled:opacity-50 min-w-0"
+            />
+          )}
+          
+          {newMessage.trim() || recordedAudioBlob ? (
+            <button
+              type="submit"
+              disabled={sending}
+              className="bg-sky-600 hover:bg-sky-700 disabled:bg-gray-600 text-white w-12 h-12 rounded-full flex items-center justify-center transition shadow-sm flex-shrink-0"
+              title="Kirim"
+            >
+              <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5 ml-1">
+                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+              </svg>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={isRecording ? stopRecording : startRecording}
+              className={`${isRecording ? 'bg-red-500 animate-pulse' : 'bg-[#2d4a6f] hover:bg-[#3d5a7f]'} text-white w-12 h-12 rounded-full flex items-center justify-center transition shadow-sm flex-shrink-0`}
+              title="Mulai/Berhenti merekam"
+            >
+              {isRecording ? (
+                <svg viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6"><path d="M6 6h12v12H6z"/></svg>
+              ) : (
+                <span className="text-xl">🎙️</span>
+              )}
+            </button>
+          )}
+        </form>
+      </footer>
+    </div>
+  )
+}

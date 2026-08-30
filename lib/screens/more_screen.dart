@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'login_screen.dart';
 import '../services/call_manager.dart';
@@ -6,6 +7,9 @@ import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
 import '../services/notification_service.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'store_dashboard_screen.dart';
+import '../services/api_service.dart';
+import 'about_screen.dart';
+import 'profile_screen.dart';
 
 class MoreScreen extends StatefulWidget {
   const MoreScreen({super.key});
@@ -18,6 +22,7 @@ class _MoreScreenState extends State<MoreScreen> {
   String _name = 'User';
   String _phone = '';
   String _username = '';
+  String _profilePicture = '';
   bool _isLoading = true;
   bool _isNotificationEnabled = false;
 
@@ -37,12 +42,41 @@ class _MoreScreenState extends State<MoreScreen> {
 
   Future<void> _loadUserData() async {
     final prefs = await SharedPreferences.getInstance();
+    
+    // Fallback awal dari prefs
+    String localName = prefs.getString('user_name') ?? 'User';
+    String localPhone = prefs.getString('user_phone') ?? '';
+    String localUsername = prefs.getString('username') ?? '';
+    String localProfilePic = prefs.getString('profile_picture') ?? '';
+
     setState(() {
-      _name = prefs.getString('user_name') ?? 'User';
-      _phone = prefs.getString('user_phone') ?? '';
-      _username = prefs.getString('username') ?? '';
-      _isLoading = false;
+      _name = localName;
+      _phone = localPhone;
+      _username = localUsername;
+      _profilePicture = localProfilePic;
     });
+
+    // Coba ambil data terbaru dari API
+    final res = await ApiService.getMyProfile();
+    if (res['success'] && res['data'] != null && res['data']['user'] != null) {
+      final user = res['data']['user'];
+      setState(() {
+        _name = user['name'] ?? localName;
+        _phone = user['phone'] ?? localPhone;
+        _username = user['username'] ?? localUsername;
+        _profilePicture = user['profile_picture'] ?? localProfilePic;
+        _isLoading = false;
+      });
+      // Simpan ke prefs agar sinkron
+      await prefs.setString('user_name', _name);
+      await prefs.setString('user_phone', _phone);
+      await prefs.setString('username', _username);
+      await prefs.setString('profile_picture', _profilePicture);
+    } else {
+      setState(() {
+        _isLoading = false;
+      });
+    }
   }
 
   Future<void> _handleLogout() async {
@@ -119,7 +153,14 @@ class _MoreScreenState extends State<MoreScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   // Profil User
-                  Container(
+                  GestureDetector(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => const ProfileScreen()),
+                      ).then((_) => _loadUserData());
+                    },
+                    child: Container(
                     padding: const EdgeInsets.all(20),
                     decoration: const BoxDecoration(
                       border: Border(bottom: BorderSide(color: Colors.black12)),
@@ -129,14 +170,19 @@ class _MoreScreenState extends State<MoreScreen> {
                         CircleAvatar(
                           radius: 30,
                           backgroundColor: primaryColor,
-                          child: Text(
-                            _name.isNotEmpty ? _name[0].toUpperCase() : 'U',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
+                          backgroundImage: _profilePicture.isNotEmpty 
+                              ? CachedNetworkImageProvider('${ApiService.baseUrl.replaceAll('/api/v1', '')}/uploads/profiles/$_profilePicture')
+                              : null,
+                          child: _profilePicture.isEmpty 
+                              ? Text(
+                                  _name.isNotEmpty ? _name[0].toUpperCase() : 'U',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 24,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                )
+                              : null,
                         ),
                         const SizedBox(width: 16),
                         Expanded(
@@ -171,6 +217,7 @@ class _MoreScreenState extends State<MoreScreen> {
                       ],
                     ),
                   ),
+                  ), // End of GestureDetector
 
                   // Menu Unggulan
                   const Padding(
@@ -211,12 +258,21 @@ class _MoreScreenState extends State<MoreScreen> {
                     ),
                   ),
                   _buildMenuItem(Icons.settings, 'Pengaturan', 'Atur preferensi Anda', iconColor: Colors.black54),
+                  _buildMenuItem(
+                    Icons.info, 
+                    'Tentang Aplikasi', 
+                    'Versi, pengembang, dan lisensi', 
+                    iconColor: Colors.blue, 
+                    onTap: () {
+                      Navigator.push(context, MaterialPageRoute(builder: (context) => const AboutScreen()));
+                    }
+                  ),
                   _buildMenuItem(Icons.lock, 'Privasi & Keamanan', 'Kelola privasi akun', iconColor: Colors.black54),
                   _buildMenuItem(Icons.storage, 'Penyimpanan & Data', 'Kelola data dan cache', iconColor: Colors.black54),
                   
                   // Notification Settings Section
                   Container(
-                    color: Colors.black.withOpacity(0.02),
+                    color: Colors.black.withValues(alpha: 0.02),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -225,7 +281,7 @@ class _MoreScreenState extends State<MoreScreen> {
                           title: const Text('Notifikasi Push', style: TextStyle(fontWeight: FontWeight.bold)),
                           subtitle: const Text('Aktifkan notifikasi untuk aplikasi', style: TextStyle(fontSize: 12, color: Colors.grey)),
                           value: _isNotificationEnabled,
-                          activeColor: primaryColor,
+                          activeThumbColor: primaryColor,
                           onChanged: (bool value) async {
                             if (value) {
                               final granted = await NotificationService().requestPermission();

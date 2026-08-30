@@ -1,16 +1,13 @@
 import 'dart:async';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter/material.dart';
 import 'package:livekit_client/livekit_client.dart';
-import 'package:socket_io_client/socket_io_client.dart' as IO;
-import 'package:flutter_callkit_incoming/entities/call_event.dart';
+import 'package:socket_io_client/socket_io_client.dart' as io;
 import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
-import 'package:flutter_callkit_incoming/entities/android_params.dart';
-import 'package:flutter_callkit_incoming/entities/call_kit_params.dart';
-import 'package:flutter_callkit_incoming/entities/ios_params.dart';
-import 'package:flutter_callkit_incoming/entities/notification_params.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'api_service.dart';
 import 'database_helper.dart';
+import '../main.dart'; // To access navigatorKey
 
 enum CallState { idle, calling, ringing, connected }
 
@@ -38,12 +35,11 @@ class CallManager extends ChangeNotifier {
       notifyListeners();
     });
 
-    _listenToCallKitEvents();
   }
 
   late final Room _room;
   late final EventsListener<RoomEvent> _listener;
-  IO.Socket? _socket;
+  io.Socket? _socket;
 
   CallState state = CallState.idle;
   
@@ -74,7 +70,7 @@ class CallManager extends ChangeNotifier {
     _socket?.disconnect();
     _socket?.dispose();
 
-    _socket = IO.io(ApiService.callsSocketUrl, <String, dynamic>{
+    _socket = io.io(ApiService.callsSocketUrl, <String, dynamic>{
       'transports': ['websocket', 'polling'],
       'autoConnect': false,
       'auth': {'token': token},
@@ -95,8 +91,8 @@ class CallManager extends ChangeNotifier {
 
     _socket?.on('call:incoming', (data) {
       final callData = data['call'];
-      final callerName = callData['caller_name'] ?? 'Unknown Caller';
-      final callerPhone = callData['caller_phone'] ?? 'Unknown Number';
+      final callerName = callData['caller_name'] ?? callData['callerName'] ?? 'Unknown Caller';
+      final callerPhone = callData['caller_phone'] ?? callData['callerPhone'] ?? 'Unknown Number';
       final callId = callData['id'].toString();
       final isVideoCall = callData['type'] == 'video';
 
@@ -120,17 +116,6 @@ class CallManager extends ChangeNotifier {
     _socket?.connect();
   }
 
-  void _listenToCallKitEvents() {
-    FlutterCallkitIncoming.onEvent.listen((CallEvent? event) async {
-      if (event == null) return;
-      
-      if (event is CallEventActionCallAccept) {
-        await acceptCall();
-      } else if (event is CallEventActionCallDecline) {
-        await rejectCall();
-      }
-    });
-  }
 
   Future<void> handleIncomingCall(String callId, String callerName, String callerPhone, bool video) async {
     if (isActive) return;
@@ -144,43 +129,7 @@ class CallManager extends ChangeNotifier {
     state = CallState.ringing;
     notifyListeners();
 
-    CallKitParams callKitParams = CallKitParams(
-      id: callId,
-      nameCaller: callerName,
-      appName: 'Our Chat',
-      avatar: 'https://i.pravatar.cc/100', // Example avatar
-      handle: callerPhone,
-      type: video ? 1 : 0,
-      duration: 30000,
-      extra: <String, dynamic>{},
-      android: const AndroidParams(
-        isCustomNotification: true,
-        isShowLogo: false,
-        ringtonePath: 'system_ringtone_default',
-        backgroundColor: '#0F3460',
-        backgroundUrl: 'assets/test.png',
-        actionColor: '#4CAF50',
-        textColor: '#ffffff',
-      ),
-      ios: const IOSParams(
-        iconName: 'CallKitLogo',
-        handleType: 'generic',
-        supportsVideo: true,
-        maximumCallGroups: 2,
-        maximumCallsPerCallGroup: 1,
-        audioSessionMode: 'default',
-        audioSessionActive: true,
-        audioSessionPreferredSampleRate: 44100.0,
-        audioSessionPreferredIOBufferDuration: 0.005,
-        supportsDTMF: true,
-        supportsHolding: true,
-        supportsGrouping: false,
-        supportsUngrouping: false,
-        ringtonePath: 'system_ringtone_default',
-      ),
-    );
-
-    await FlutterCallkitIncoming.showCallkitIncoming(callKitParams);
+    // UI ditangani oleh CallOverlay, tidak perlu show CallKit UI
 
     // Save to local database
     await DatabaseHelper().insertCallHistory(
@@ -189,6 +138,7 @@ class CallManager extends ChangeNotifier {
       direction: 'incoming',
       status: 'ringing',
       timestamp: DateTime.now().toIso8601String(),
+      type: video ? 'video' : 'audio',
     );
   }
 
@@ -198,6 +148,11 @@ class CallManager extends ChangeNotifier {
   Future<void> startCall(String phone, String otherName, bool video) async {
     if (isActive) return;
     
+    await Permission.microphone.request();
+    if (video) {
+      await Permission.camera.request();
+    }
+
     currentOtherUserPhone = phone;
     currentOtherUserName = otherName;
     isVideo = video;
@@ -208,13 +163,29 @@ class CallManager extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final callResult = await ApiService.startCall(phone);
+      final callResult = await ApiService.startCall(phone, callType: video ? 'video' : 'audio');
       if (!callResult['success']) throw Exception(callResult['message']);
       
       currentCallId = callResult['data']['call']['id'].toString();
+      
+      // Save outgoing call to local history
+      await DatabaseHelper().insertCallHistory(
+        otherPhone: phone,
+        otherName: otherName,
+        direction: 'outgoing',
+        status: 'calling',
+        timestamp: DateTime.now().toIso8601String(),
+        type: video ? 'video' : 'audio',
+      );
+      
       notifyListeners();
     } catch (e) {
       debugPrint("Gagal startCall: $e");
+      if (navigatorKey.currentContext != null) {
+        ScaffoldMessenger.of(navigatorKey.currentContext!).showSnackBar(
+          SnackBar(content: Text('Error startCall: $e')),
+        );
+      }
       _endLocalCall();
     }
   }
@@ -225,6 +196,11 @@ class CallManager extends ChangeNotifier {
   Future<void> acceptCall() async {
     if (state != CallState.ringing || currentCallId == null) return;
     
+    await Permission.microphone.request();
+    if (isVideo) {
+      await Permission.camera.request();
+    }
+
     state = CallState.calling; // Transisi
     notifyListeners();
 
@@ -235,6 +211,11 @@ class CallManager extends ChangeNotifier {
       await _fetchLiveKitTokenAndConnect();
     } catch (e) {
       debugPrint("Gagal acceptCall: $e");
+      if (navigatorKey.currentContext != null) {
+        ScaffoldMessenger.of(navigatorKey.currentContext!).showSnackBar(
+          SnackBar(content: Text('Error acceptCall: $e')),
+        );
+      }
       _endLocalCall();
     }
   }
@@ -267,6 +248,11 @@ class CallManager extends ChangeNotifier {
       notifyListeners();
     } catch (e) {
       debugPrint("Gagal connect LiveKit: $e");
+      if (navigatorKey.currentContext != null) {
+        ScaffoldMessenger.of(navigatorKey.currentContext!).showSnackBar(
+          SnackBar(content: Text('Error LiveKit: $e')),
+        );
+      }
       _endLocalCall();
     }
   }

@@ -215,6 +215,49 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> with SingleTicker
     });
   }
   
+  void _deleteStory(String storyId) async {
+    _animController.stop();
+    setState(() => _isPaused = true);
+    
+    // Show confirmation dialog
+    bool? confirm = await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Hapus Status?'),
+        content: const Text('Status ini akan dihapus secara permanen.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Batal'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Hapus', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      final res = await ApiService.deleteStory(storyId);
+      if (res['success']) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Status dihapus')));
+          Navigator.pop(context, true); // true indicates deletion occurred so parent can refresh
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(res['message'] ?? 'Gagal menghapus')));
+          _animController.forward();
+          setState(() => _isPaused = false);
+        }
+      }
+    } else {
+      _animController.forward();
+      setState(() => _isPaused = false);
+    }
+  }
+  
   String _formatTime(DateTime time) {
     final now = DateTime.now();
     final diff = now.difference(time);
@@ -356,7 +399,7 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> with SingleTicker
                                 }
                                 return LinearProgressIndicator(
                                   value: value,
-                                  backgroundColor: Colors.white.withOpacity(0.3),
+                                  backgroundColor: Colors.white.withValues(alpha: 0.3),
                                   valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
                                   minHeight: 2,
                                 );
@@ -401,6 +444,11 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> with SingleTicker
                             ],
                           ),
                         ),
+                        if (widget.userStories.userName == 'Saya')
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline, color: Colors.white),
+                            onPressed: () => _deleteStory(story.id),
+                          ),
                       ],
                     ),
                   ],
@@ -414,15 +462,17 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> with SingleTicker
               left: 0,
               right: 0,
               child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+                padding: const EdgeInsets.only(bottom: 20, top: 40, left: 16, right: 16),
                 decoration: const BoxDecoration(
                   gradient: LinearGradient(
                     begin: Alignment.bottomCenter,
                     end: Alignment.topCenter,
-                    colors: [Colors.black54, Colors.transparent],
+                    colors: [Colors.black87, Colors.transparent],
                   ),
                 ),
                 child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     if (story.contentType == 'image' && story.textContent != null && story.textContent!.isNotEmpty)
                       Padding(
@@ -437,14 +487,19 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> with SingleTicker
                     if (widget.userStories.userName == 'Saya')
                       GestureDetector(
                         onTap: _showViewersModal,
-                        child: Column(
-                          children: [
-                            const Icon(Icons.keyboard_arrow_up, color: Colors.white),
-                            Text(
-                              _viewers.isNotEmpty ? '${_viewers.length} tayangan' : '0 tayangan',
-                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                            ),
-                          ],
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.remove_red_eye, color: Colors.white, size: 24),
+                              const SizedBox(width: 8),
+                              Text(
+                                _viewers.isNotEmpty ? '\${_viewers.length}' : '0',
+                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                   ],

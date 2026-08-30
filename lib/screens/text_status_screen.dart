@@ -2,7 +2,12 @@ import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 
 class TextStatusScreen extends StatefulWidget {
-  const TextStatusScreen({super.key});
+  final bool showCameraTabs;
+  
+  const TextStatusScreen({
+    super.key, 
+    this.showCameraTabs = false,
+  });
 
   @override
   State<TextStatusScreen> createState() => _TextStatusScreenState();
@@ -38,7 +43,7 @@ class _TextStatusScreenState extends State<TextStatusScreen> {
       _isUploading = true;
     });
 
-    final bgColorHex = '#${_bgColors[_colorIndex].value.toRadixString(16).substring(2).toUpperCase()}';
+    final bgColorHex = '#${_bgColors[_colorIndex].toARGB32().toRadixString(16).substring(2).toUpperCase()}';
     
     final result = await ApiService.uploadTextStory(text, bgColorHex);
     
@@ -67,7 +72,7 @@ class _TextStatusScreenState extends State<TextStatusScreen> {
             // Text Input
             Center(
               child: Padding(
-                padding: const EdgeInsets.all(32.0),
+                padding: const EdgeInsets.only(left: 32.0, right: 32.0, bottom: 80),
                 child: TextField(
                   controller: _textController,
                   autofocus: true,
@@ -113,12 +118,54 @@ class _TextStatusScreenState extends State<TextStatusScreen> {
             // Send Button
             if (_textController.text.trim().isNotEmpty)
               Positioned(
-                bottom: 20,
+                bottom: widget.showCameraTabs ? 70 : 20, // Lift up if tabs are showing
                 right: 20,
                 child: FloatingActionButton(
                   backgroundColor: const Color(0xFF0F3460),
                   onPressed: _isUploading ? null : _uploadStatus,
-                  child: const Icon(Icons.send, color: Colors.white),
+                  child: _isUploading 
+                    ? const Padding(
+                        padding: EdgeInsets.all(12.0),
+                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                      ) 
+                    : const Icon(Icons.send, color: Colors.white),
+                ),
+              ),
+              
+            // Bottom Camera Tabs if navigated from Camera
+            if (widget.showCameraTabs)
+              Align(
+                alignment: Alignment.bottomCenter,
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 20),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      GestureDetector(
+                        onTap: () {
+                          Navigator.pop(context, 'video');
+                        },
+                        child: const Text('Video', style: TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.bold)),
+                      ),
+                      const SizedBox(width: 24),
+                      GestureDetector(
+                        onTap: () {
+                          Navigator.pop(context, 'foto');
+                        },
+                        child: const Text('Foto', style: TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.bold)),
+                      ),
+                      const SizedBox(width: 24),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.white24,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: const Text('Teks', style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+                      ),
+                      const SizedBox(width: 38), // Balancer
+                    ],
+                  ),
                 ),
               ),
           ],

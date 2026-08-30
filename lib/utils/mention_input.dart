@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 
@@ -171,7 +171,7 @@ class _MentionInputState extends State<MentionInput> {
     final textBeforeCursor = text.substring(0, selection.baseOffset);
     final mentionIndex = textBeforeCursor.lastIndexOf('@');
 
-    final newText = text.substring(0, mentionIndex) + '@ ' + text.substring(selection.baseOffset);
+    final newText = '${text.substring(0, mentionIndex)}@ ${text.substring(selection.baseOffset)}';
     widget.controller.value = TextEditingValue(
       text: newText,
       selection: TextSelection.collapsed(offset: mentionIndex + username.length + 2),

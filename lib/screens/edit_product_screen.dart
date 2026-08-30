@@ -4,14 +4,19 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../services/api_service.dart';
 
-class AddProductScreen extends StatefulWidget {
-  const AddProductScreen({super.key});
+import '../models/product_model.dart';
+
+class EditProductScreen extends StatefulWidget {
+
+  final ProductModel product;
+
+  const EditProductScreen({super.key, required this.product});
 
   @override
-  _AddProductScreenState createState() => _AddProductScreenState();
+  _EditProductScreenState createState() => _EditProductScreenState();
 }
 
-class _AddProductScreenState extends State<AddProductScreen> {
+class _EditProductScreenState extends State<EditProductScreen> {
   final _formKey = GlobalKey<FormState>();
   
   // Info Produk
@@ -25,8 +30,8 @@ class _AddProductScreenState extends State<AddProductScreen> {
   final _skuController = TextEditingController();
   
   // Variasi
-  final List<String> _selectedColors = [];
-  final List<String> _selectedSizes = [];
+  List<String> _selectedColors = [];
+  List<String> _selectedSizes = [];
   final List<String> _availableColors = ['Merah', 'Jingga', 'Kuning', 'Hijau', 'Biru Muda', 'Biru Tua', 'Nila', 'Ungu'];
   final List<String> _availableSizes = ['S', 'M', 'L', 'XL', 'XXL'];
 
@@ -51,6 +56,19 @@ class _AddProductScreenState extends State<AddProductScreen> {
   @override
   void initState() {
     super.initState();
+
+    _nameController.text = widget.product.name;
+    _descController.text = widget.product.description;
+    _priceController.text = widget.product.price.toInt().toString();
+    _stockController.text = widget.product.stock.toString();
+    
+    // We don't have sku, weight, condition etc in the provided map but we can parse variations if present
+    try {
+      if (widget.product.variants != null) {
+        _selectedColors = List<String>.from(widget.product.variants!['warna'] ?? []);
+        _selectedSizes = List<String>.from(widget.product.variants!['ukuran'] ?? []);
+      }
+    } catch (e) {}
     _fetchCategories();
   }
 
@@ -88,10 +106,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
 
   void _submitProduct() async {
     if (!_formKey.currentState!.validate()) return;
-    if (_selectedImages.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Foto Produk wajib diisi (Min 1)')));
-      return;
-    }
+    
 
     setState(() {
       _isLoading = true;
@@ -121,17 +136,17 @@ class _AddProductScreenState extends State<AddProductScreen> {
 
     final List<String> imagePaths = _selectedImages.map((e) => e.path).toList();
 
-    final res = await ApiService.addProduct(data, imagePaths);
+    final res = await ApiService.editProduct(widget.product.id, data, imagePaths, []);
 
     setState(() {
       _isLoading = false;
     });
 
     if (res['success']) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Produk berhasil ditambahkan')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Produk berhasil diperbarui')));
       Navigator.pop(context, true);
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(res['message'] ?? 'Gagal menambah produk')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(res['message'] ?? 'Gagal memperbarui produk')));
     }
   }
 
@@ -168,7 +183,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
     return Scaffold(
       backgroundColor: Colors.grey[100],
       appBar: AppBar(
-        title: const Text('Tambah Produk'),
+        title: const Text('Edit Produk'),
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
         elevation: 1,

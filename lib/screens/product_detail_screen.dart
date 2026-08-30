@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import '../models/product_model.dart';
 import '../models/cart_model.dart';
+import '../utils/format_utils.dart';
 import 'cart_screen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class ProductDetailScreen extends StatefulWidget {
   final ProductModel product; // Data awal dari daftar
 
-  const ProductDetailScreen({Key? key, required this.product}) : super(key: key);
+  const ProductDetailScreen({super.key, required this.product});
 
   @override
   _ProductDetailScreenState createState() => _ProductDetailScreenState();
@@ -19,6 +21,8 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   bool _isLoading = true;
   List<ProductModel> _recommendations = [];
   int _cartItemCount = 0;
+  String? _currentUserId;
+  String? _myStoreId;
 
   @override
   void initState() {
@@ -26,6 +30,29 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     _fullProduct = widget.product;
     _fetchProductDetail();
     _fetchCartCount();
+    _loadUserData();
+  }
+
+  Future<void> _loadUserData() async {
+    final prefs = await SharedPreferences.getInstance();
+    final userId = prefs.getString('user_id');
+    
+    String? storeId;
+    try {
+      final res = await ApiService.getStoreStatus();
+      if (res['success'] && res['data'] != null && res['data']['store'] != null) {
+        storeId = res['data']['store']['id']?.toString() ?? res['data']['store']['market_id']?.toString();
+      }
+    } catch (e) {
+      // ignore
+    }
+    
+    if (mounted) {
+      setState(() {
+        _currentUserId = userId;
+        _myStoreId = storeId;
+      });
+    }
   }
 
   Future<void> _fetchCartCount() async {
@@ -59,12 +86,12 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     }
   }
 
-  void _addToCart() async {
+  void _addToCart({int quantity = 1, Map<String, dynamic>? selectedVariants, bool isBuyNow = false}) async {
     setState(() {
       _isAdding = true;
     });
 
-    final res = await ApiService.addToCart(_fullProduct.id, 1);
+    final res = await ApiService.addToCart(_fullProduct.id, quantity, variants: selectedVariants);
     
     setState(() {
       _isAdding = false;
@@ -72,9 +99,16 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
 
     if (res['success']) {
       _fetchCartCount(); // Update badge
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Berhasil ditambahkan ke keranjang')),
-      );
+      if (isBuyNow) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => const CartScreen()),
+        ).then((_) => _fetchCartCount());
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Berhasil ditambahkan ke keranjang')),
+        );
+      }
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(res['message'] ?? 'Gagal menambahkan ke keranjang')),
@@ -82,8 +116,242 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     }
   }
 
+  void _handleAction(bool isBuyNow) {
+    if (_fullProduct.variants != null && 
+       ((_fullProduct.variants!['warna'] != null && (_fullProduct.variants!['warna'] as List).isNotEmpty) || 
+        (_fullProduct.variants!['ukuran'] != null && (_fullProduct.variants!['ukuran'] as List).isNotEmpty))) {
+      _showVariantSelection(isBuyNow);
+    } else {
+      _addToCart(isBuyNow: isBuyNow);
+    }
+  }
+
+  void _showVariantSelection(bool isBuyNow) {
+    String? selectedWarna;
+    String? selectedUkuran;
+    int quantity = 1;
+
+    final warnaList = _fullProduct.variants != null && _fullProduct.variants!['warna'] != null
+        ? List<String>.from(_fullProduct.variants!['warna'])
+        : <String>[];
+    final ukuranList = _fullProduct.variants != null && _fullProduct.variants!['ukuran'] != null
+        ? List<String>.from(_fullProduct.variants!['ukuran'])
+        : <String>[];
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (BuildContext context, StateSetter setModalState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(context).viewInsets.bottom,
+                left: 16,
+                right: 16,
+                top: 16,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        height: 80,
+                        width: 80,
+                        color: Colors.grey[200],
+                        child: _fullProduct.images.isNotEmpty
+                            ? Image.network(
+                                ApiService.getServerUrl(_fullProduct.images[0]),
+                                fit: BoxFit.cover,
+                                errorBuilder: (c, e, s) => const Icon(Icons.image),
+                              )
+                            : const Icon(Icons.image),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              FormatUtils.formatRupiah(_fullProduct.price),
+                              style: TextStyle(
+                                fontSize: 18,
+                                color: Theme.of(context).primaryColor,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text('Stok: ${_fullProduct.stock}'),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.pop(context),
+                      )
+                    ],
+                  ),
+                  const Divider(),
+                  if (warnaList.isNotEmpty) ...[
+                    const Text('Warna', style: TextStyle(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      children: warnaList.map((w) {
+                        final isSelected = selectedWarna == w;
+                        return ChoiceChip(
+                          label: Text(w),
+                          selected: isSelected,
+                          onSelected: (val) {
+                            setModalState(() {
+                              selectedWarna = val ? w : null;
+                            });
+                          },
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                  if (ukuranList.isNotEmpty) ...[
+                    const Text('Ukuran', style: TextStyle(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      children: ukuranList.map((u) {
+                        final isSelected = selectedUkuran == u;
+                        return ChoiceChip(
+                          label: Text(u),
+                          selected: isSelected,
+                          onSelected: (val) {
+                            setModalState(() {
+                              selectedUkuran = val ? u : null;
+                            });
+                          },
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                  const Text('Jumlah', style: TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      IconButton(
+                        onPressed: quantity > 1
+                            ? () => setModalState(() => quantity--)
+                            : null,
+                        icon: const Icon(Icons.remove_circle_outline),
+                      ),
+                      Text('$quantity', style: const TextStyle(fontSize: 16)),
+                      IconButton(
+                        onPressed: quantity < _fullProduct.stock
+                            ? () => setModalState(() => quantity++)
+                            : null,
+                        icon: const Icon(Icons.add_circle_outline),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                      ),
+                      onPressed: () {
+                        if (warnaList.isNotEmpty && selectedWarna == null) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Pilih warna terlebih dahulu')),
+                          );
+                          return;
+                        }
+                        if (ukuranList.isNotEmpty && selectedUkuran == null) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Pilih ukuran terlebih dahulu')),
+                          );
+                          return;
+                        }
+
+                        Navigator.pop(context);
+                        
+                        Map<String, dynamic> variants = {};
+                        if (selectedWarna != null) variants['warna'] = selectedWarna;
+                        if (selectedUkuran != null) variants['ukuran'] = selectedUkuran;
+
+                        _addToCart(quantity: quantity, selectedVariants: variants.isEmpty ? null : variants, isBuyNow: isBuyNow);
+                      },
+                      child: Text(isBuyNow ? 'Beli Sekarang' : 'Masukkan Keranjang'),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildSpecRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        children: [
+          Expanded(flex: 2, child: Text(label, style: const TextStyle(color: Colors.grey, fontSize: 13))),
+          Expanded(flex: 3, child: Text(value, style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13))),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildVariantChips(String title, List<String> variants) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: const TextStyle(fontSize: 13, color: Colors.grey)),
+        const SizedBox(height: 4),
+        Wrap(
+          spacing: 8,
+          children: variants.map((v) {
+            Color baseColor;
+            switch (v) {
+              case 'Merah': baseColor = Colors.red; break;
+              case 'Jingga': baseColor = Colors.orange; break;
+              case 'Kuning': baseColor = Colors.yellow.shade700; break;
+              case 'Hijau': baseColor = Colors.green; break;
+              case 'Biru Muda': baseColor = Colors.lightBlue; break;
+              case 'Biru Tua': baseColor = Colors.blue.shade900; break;
+              case 'Nila': baseColor = Colors.indigo; break;
+              case 'Ungu': baseColor = Colors.purple; break;
+              default: baseColor = Theme.of(context).primaryColor;
+            }
+            if (title.toLowerCase() != 'warna') {
+              baseColor = Theme.of(context).primaryColor;
+            }
+
+            return Chip(
+              label: Text(v, style: TextStyle(color: baseColor, fontSize: 12)),
+              backgroundColor: baseColor.withValues(alpha: 0.1),
+              side: BorderSide(color: baseColor.withValues(alpha: 0.5)),
+            );
+          }).toList(),
+        ),
+        const SizedBox(height: 8),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final isMyProduct = (_myStoreId != null && _myStoreId == _fullProduct.storeId) || 
+                        (_currentUserId != null && _currentUserId == _fullProduct.storeId);
     return Scaffold(
       appBar: AppBar(
         actions: [
@@ -150,7 +418,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Rp ${_fullProduct.price.toStringAsFixed(0)}',
+                        FormatUtils.formatRupiah(_fullProduct.price),
                         style: TextStyle(
                           fontSize: 20, 
                           color: Theme.of(context).primaryColor,
@@ -170,6 +438,42 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                         ],
                       ),
                       
+                      const SizedBox(height: 16),
+                      // Details Card
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          border: Border.all(color: Colors.grey.shade300),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Spesifikasi', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                            const SizedBox(height: 8),
+                            if (_fullProduct.sku.isNotEmpty)
+                              _buildSpecRow('SKU', _fullProduct.sku),
+                            _buildSpecRow('Kondisi', _fullProduct.conditionStatus),
+                            if (_fullProduct.isPreorder)
+                              _buildSpecRow('Pre-Order', 'Dikirim dalam ${_fullProduct.preorderDays} hari'),
+                            if (_fullProduct.length > 0)
+                              _buildSpecRow('Dimensi', '${_fullProduct.length} x ${_fullProduct.width} x ${_fullProduct.height} cm'),
+                          ],
+                        ),
+                      ),
+                      
+                      // Variations
+                      if (_fullProduct.variants != null && (_fullProduct.variants!['warna'] != null || _fullProduct.variants!['ukuran'] != null)) ...[
+                        const SizedBox(height: 16),
+                        const Text('Pilihan Variasi', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                        const SizedBox(height: 8),
+                        if (_fullProduct.variants!['warna'] != null && (_fullProduct.variants!['warna'] as List).isNotEmpty)
+                          _buildVariantChips('Warna', List<String>.from(_fullProduct.variants!['warna'])),
+                        if (_fullProduct.variants!['ukuran'] != null && (_fullProduct.variants!['ukuran'] as List).isNotEmpty)
+                          _buildVariantChips('Ukuran', List<String>.from(_fullProduct.variants!['ukuran'])),
+                      ],
+
                       const SizedBox(height: 24),
                       // Store Info
                       if (_fullProduct.storeName.isNotEmpty)
@@ -275,7 +579,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                                               ),
                                               const SizedBox(height: 4),
                                               Text(
-                                                'Rp ${rec.price.toStringAsFixed(0)}',
+                                                FormatUtils.formatRupiah(rec.price),
                                                 style: TextStyle(color: Theme.of(context).primaryColor, fontWeight: FontWeight.w600, fontSize: 12),
                                               ),
                                             ],
@@ -297,7 +601,21 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
       bottomNavigationBar: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(8.0),
-          child: Row(
+          child: isMyProduct 
+            ? Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey[200],
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Text(
+                  'Ini adalah produk Anda sendiri', 
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)
+                ),
+              )
+            : Row(
             children: [
               Container(
                 decoration: BoxDecoration(
@@ -318,7 +636,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
               Expanded(
                 child: OutlinedButton(
                   onPressed: _isLoading ? null : () {
-                    _addToCart(); 
+                    _handleAction(true);
                   },
                   style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
                   child: const Text('Beli Langsung'),
@@ -327,7 +645,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
               const SizedBox(width: 8),
               Expanded(
                 child: ElevatedButton(
-                  onPressed: (_isAdding || _isLoading) ? null : _addToCart,
+                  onPressed: (_isAdding || _isLoading) ? null : () => _handleAction(false),
                   style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
                   child: _isAdding 
                     ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))

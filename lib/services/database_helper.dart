@@ -26,7 +26,7 @@ class DatabaseHelper {
     final path = await _getDbPath();
     return await openDatabase(
       path,
-      version: 2, // Bumped version to 2 for call_history
+      version: 3, // Bumped version to 3 for call type
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -47,6 +47,9 @@ class DatabaseHelper {
     if (oldVersion < 2) {
       await _createCallHistoryTable(db);
     }
+    if (oldVersion < 3) {
+      await db.execute('ALTER TABLE call_history ADD COLUMN type TEXT DEFAULT "audio"');
+    }
   }
 
   Future<void> _createCallHistoryTable(Database db) async {
@@ -57,7 +60,8 @@ class DatabaseHelper {
         other_name TEXT,
         direction TEXT NOT NULL,
         status TEXT NOT NULL,
-        timestamp TEXT NOT NULL
+        timestamp TEXT NOT NULL,
+        type TEXT DEFAULT "audio"
       )
     ''');
   }
@@ -101,6 +105,7 @@ class DatabaseHelper {
     required String direction,
     required String status,
     required String timestamp,
+    String type = 'audio',
   }) async {
     final db = await database;
     await db.insert(
@@ -111,6 +116,7 @@ class DatabaseHelper {
         'direction': direction,
         'status': status,
         'timestamp': timestamp,
+        'type': type,
       },
     );
   }

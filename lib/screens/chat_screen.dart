@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
 import '../services/api_service.dart';
+import '../services/database_helper.dart';
 import '../widgets/audio_bubble.dart';
 import '../widgets/video_bubble.dart';
 import '../services/call_manager.dart';
@@ -16,12 +17,14 @@ class ChatScreen extends StatefulWidget {
   final String roomId;
   final String otherUserName;
   final String otherUserPhone;
+  final bool isGroup;
 
   const ChatScreen({
     super.key,
     required this.roomId,
     required this.otherUserName,
     required this.otherUserPhone,
+    this.isGroup = false,
   });
 
   @override
@@ -33,6 +36,8 @@ class _ChatScreenState extends State<ChatScreen> {
   final ScrollController _scrollController = ScrollController();
   
   List<dynamic> _messages = [];
+  List<dynamic> _groupMembers = [];
+  Map<String, String> _contactMap = {};
   bool _isLoading = true;
   String? _error;
   String? _myUserId;
@@ -75,7 +80,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _socket!.connect();
     
     _socket!.onConnect((_) {
-      _socket!.emit('join', widget.roomId);
+      _socket!.emit('join', widget.isGroup ? 'group_${widget.roomId}' : widget.roomId);
     });
 
     _socket!.on('message', (data) {
@@ -110,12 +115,30 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _fetchMessages() async {
-    final result = await ApiService.getChatMessages(widget.roomId);
+    try {
+      final contacts = await DatabaseHelper().getContacts();
+      final map = <String, String>{};
+      for (var c in contacts) {
+        String phone = c['phone_number'].toString().replaceAll(RegExp(r'[^0-9]'), '').trim();
+        if (phone.startsWith('62')) {
+          phone = '0${phone.substring(2)}';
+        }
+        map[phone] = c['saved_name'].toString();
+      }
+      _contactMap = map;
+    } catch (e) {
+      debugPrint("Gagal load kontak: $e");
+    }
+
+    final result = widget.isGroup ? await ApiService.getGroupMessages(widget.roomId) : await ApiService.getChatMessages(widget.roomId);
     if (result['success']) {
       if (mounted) {
         setState(() {
           final List<dynamic> msgs = result['data']['messages'] ?? [];
           _messages = msgs.reversed.toList();
+          if (widget.isGroup && result['data']['members'] != null) {
+            _groupMembers = result['data']['members'];
+          }
           _isLoading = false;
           _error = null;
         });
@@ -157,7 +180,7 @@ class _ChatScreenState extends State<ChatScreen> {
     });
     _scrollToBottom();
 
-    final result = await ApiService.sendMessage(widget.roomId, text);
+    final result = widget.isGroup ? await ApiService.sendGroupMessage(widget.roomId, text) : await ApiService.sendMessage(widget.roomId, text);
     if (!result['success']) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -177,7 +200,7 @@ class _ChatScreenState extends State<ChatScreen> {
       const SnackBar(content: Text('Mengirim media...')),
     );
 
-    final result = await ApiService.uploadMedia(widget.roomId, path, mediaType);
+    final result = widget.isGroup ? await ApiService.uploadGroupMedia(widget.roomId, path, mediaType) : await ApiService.uploadMedia(widget.roomId, path, mediaType);
     if (!result['success']) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -349,13 +372,48 @@ class _ChatScreenState extends State<ChatScreen> {
     CallManager.instance.startCall(widget.otherUserPhone, widget.otherUserName, isVideo);
   }
 
+  String _normalizePhone(String? p) {
+    if (p == null) return '';
+    String num = p.replaceAll(RegExp(r'[^0-9]'), '').trim();
+    if (num.startsWith('62')) {
+      return '0${num.substring(2)}';
+    }
+    return num;
+  }
+
+  String _getGroupSubtitle() {
+    if (!widget.isGroup || _groupMembers.isEmpty) return '';
+    List<String> names = [];
+    for (var m in _groupMembers) {
+      if (m['id'].toString() == _myUserId) {
+        names.add('Anda');
+      } else {
+        String phone = _normalizePhone(m['phone']?.toString());
+        names.add(_contactMap[phone] ?? m['name'] ?? phone);
+      }
+    }
+    return names.join(', ');
+  }
+
   @override
   Widget build(BuildContext context) {
     const primaryColor = Color(0xFF0F3460);
+    final subtitle = _getGroupSubtitle();
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.otherUserName),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(widget.otherUserName, style: const TextStyle(fontSize: 18)),
+            if (subtitle.isNotEmpty)
+              Text(
+                subtitle,
+                style: const TextStyle(fontSize: 12, color: Colors.white70),
+                overflow: TextOverflow.ellipsis,
+              ),
+          ],
+        ),
         backgroundColor: primaryColor,
         foregroundColor: Colors.white,
         actions: [
@@ -420,6 +478,17 @@ class _ChatScreenState extends State<ChatScreen> {
                                   child: Column(
                                     crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
                                     children: [
+                                      if (widget.isGroup && !isMe) ...[
+                                        Text(
+                                          _contactMap[_normalizePhone(msg['phone']?.toString())] ?? msg['name'] ?? 'User',
+                                          style: TextStyle(
+                                            color: Colors.orange.shade800,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                      ],
                                       _buildMediaContent(msg, isMe),
                                       if (msg['caption'] != null && msg['caption'].toString().isNotEmpty) ...[
                                         const SizedBox(height: 4),
@@ -473,7 +542,7 @@ class _ChatScreenState extends State<ChatScreen> {
               color: Colors.white,
               boxShadow: [
                 BoxShadow(
-                  color: Colors.grey.withOpacity(0.1),
+                  color: Colors.grey.withValues(alpha: 0.1),
                   spreadRadius: 1,
                   blurRadius: 3,
                   offset: const Offset(0, -1),

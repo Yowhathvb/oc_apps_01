@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/database_helper.dart';
@@ -53,8 +52,9 @@ class _StoryPrivacyScreenState extends State<StoryPrivacyScreen> {
 
   void _openContactPicker(String type) {
     List<String> currentSelection;
-    if (type == 'kecuali') currentSelection = List.from(_exceptions);
-    else if (type == 'hanya_bagikan') currentSelection = List.from(_included);
+    if (type == 'kecuali') {
+      currentSelection = List.from(_exceptions);
+    } else if (type == 'hanya_bagikan') currentSelection = List.from(_included);
     else currentSelection = List.from(_closeFriends);
 
     showModalBottomSheet(
@@ -75,8 +75,9 @@ class _StoryPrivacyScreenState extends State<StoryPrivacyScreen> {
                       TextButton(
                         onPressed: () {
                           setState(() {
-                            if (type == 'kecuali') _exceptions = currentSelection;
-                            else if (type == 'hanya_bagikan') _included = currentSelection;
+                            if (type == 'kecuali') {
+                              _exceptions = currentSelection;
+                            } else if (type == 'hanya_bagikan') _included = currentSelection;
                             else _closeFriends = currentSelection;
                             _privacyType = type;
                           });

@@ -1,8 +1,9 @@
-import 'dart:io' as io;
+import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:socket_io_client/socket_io_client.dart' as IO;
+import 'package:socket_io_client/socket_io_client.dart' as io;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:image_picker/image_picker.dart';
+import 'custom_gallery_picker.dart';
 import '../services/api_service.dart';
 import '../models/story_model.dart';
 import 'story_viewer_screen.dart';
@@ -22,7 +23,7 @@ class _StoryScreenState extends State<StoryScreen> {
   List<UserStories> _unviewedStories = [];
   List<UserStories> _viewedStories = [];
   UserStories? _myStories;
-  IO.Socket? _socket;
+  io.Socket? _socket;
   String? _myUserId;
 
   @override
@@ -43,7 +44,7 @@ class _StoryScreenState extends State<StoryScreen> {
     if (!tokenRes['success']) return;
     
     final token = tokenRes['data']['token'];
-    _socket = IO.io(ApiService.chatSocketUrl, IO.OptionBuilder()
+    _socket = io.io(ApiService.chatSocketUrl, io.OptionBuilder()
       .setTransports(['websocket'])
       .setAuth({'token': token})
       .build());
@@ -111,17 +112,29 @@ class _StoryScreenState extends State<StoryScreen> {
   }
 
   void _onAddCameraStatus() async {
-    final ImagePicker picker = ImagePicker();
-    final XFile? image = await picker.pickImage(source: ImageSource.gallery);
-    
-    if (image != null) {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const CustomGalleryPicker(
+          showVideoTab: true,
+          showTextTab: true,
+        ),
+      ),
+    );
+
+    if (result == 'text') {
+      _onAddTextStatus();
+      return;
+    }
+
+    if (result != null && result is File) {
       if (!mounted) return;
       // You can add a preview screen here, but for now we upload directly
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Mengunggah status...')),
       );
       
-      final res = await ApiService.uploadMediaStory(image.path, '');
+      final res = await ApiService.uploadMediaStory(result.path, '');
       if (res['success']) {
         _fetchStories();
       } else {
@@ -202,14 +215,14 @@ class _StoryScreenState extends State<StoryScreen> {
                       padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                       child: Text('Pembaruan terkini', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
                     ),
-                    ...filteredUnviewed.map((s) => _buildStoryTile(s)).toList(),
+                    ...filteredUnviewed.map((s) => _buildStoryTile(s)),
                   ],
                   if (filteredViewed.isNotEmpty) ...[
                     const Padding(
                       padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                       child: Text('Pembaruan yang telah dilihat', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
                     ),
-                    ...filteredViewed.map((s) => _buildStoryTile(s)).toList(),
+                    ...filteredViewed.map((s) => _buildStoryTile(s)),
                   ],
                 ],
               ),

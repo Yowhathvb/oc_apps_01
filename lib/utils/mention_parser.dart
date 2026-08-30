@@ -1,8 +1,5 @@
-﻿import 'package:flutter/gestures.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import '../screens/user_profile_screen.dart';
-import '../screens/media_profile_screen.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 class MentionParser {
   static Widget buildText(

@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import '../services/call_manager.dart';
 import '../services/notification_service.dart';
+import '../services/suspend_service.dart';
 import 'main_screen.dart';
-import 'home_screen.dart';
 import 'register_screen.dart';
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -44,6 +44,7 @@ class _LoginScreenState extends State<LoginScreen> {
       await CallManager.instance.initSocket();
       await NotificationService().requestPermission();
       await NotificationService().init();
+      SuspendService().init();
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -111,7 +112,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     borderRadius: BorderRadius.circular(16),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.05),
+                        color: Colors.black.withValues(alpha: 0.05),
                         blurRadius: 10,
                         offset: const Offset(0, 4),
                       ),
@@ -139,7 +140,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     borderRadius: BorderRadius.circular(16),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.05),
+                        color: Colors.black.withValues(alpha: 0.05),
                         blurRadius: 10,
                         offset: const Offset(0, 4),
                       ),

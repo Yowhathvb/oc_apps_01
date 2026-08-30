@@ -1,6 +1,5 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import '../services/api_service.dart';
-import 'package:timeago/timeago.dart' as timeago;
 import 'single_post_screen.dart';
 import 'user_profile_screen.dart';
 import 'media_profile_screen.dart';
@@ -73,7 +72,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
               ? const Center(child: Text('Belum ada notifikasi.'))
               : ListView.separated(
                   itemCount: _notifications.length,
-                  separatorBuilder: (_, __) => const Divider(height: 1, color: Colors.transparent),
+                  separatorBuilder: (_, _) => const Divider(height: 1, color: Colors.transparent),
                   itemBuilder: (context, index) {
                     final notif = _notifications[index];
                     final isUnread = notif['is_read'] == 0 || notif['is_read'] == false;
@@ -94,7 +93,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
                         }
                       },
                       child: Container(
-                        color: isUnread ? Colors.blue.withOpacity(0.05) : Colors.transparent,
+                        color: isUnread ? Colors.blue.withValues(alpha: 0.05) : Colors.transparent,
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.center,
@@ -128,7 +127,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
                                       style: const TextStyle(fontWeight: FontWeight.bold),
                                     ),
                                     TextSpan(
-                                      text: " " + notif['message'].toString().replaceAll(senderName, "").trim(),
+                                      text: " ${notif['message'].toString().replaceAll(senderName, "").trim()}",
                                     ),
                                     if (isPostRelated && notif['post_caption'] != null && notif['post_caption'].toString().isNotEmpty)
                                       TextSpan(
@@ -155,7 +154,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
                                     width: 44,
                                     height: 44,
                                     fit: BoxFit.cover,
-                                    errorBuilder: (_, __, ___) => Container(
+                                    errorBuilder: (_, _, _) => Container(
                                       width: 44,
                                       height: 44,
                                       color: Colors.grey[200],
