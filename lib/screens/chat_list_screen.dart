@@ -6,6 +6,7 @@ import '../services/database_helper.dart';
 import 'chat_screen.dart';
 import 'add_contact_screen.dart';
 import 'create_group_screen.dart';
+import 'select_contact_screen.dart';
 
 class ChatListScreen extends StatefulWidget {
   const ChatListScreen({super.key});
@@ -20,6 +21,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
   String? _error;
   String? _myUserId;
   io.Socket? _socket;
+  String _searchQuery = '';
 
   @override
   void initState() {
@@ -184,7 +186,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
   Future<void> _handleChatTap(Map<String, dynamic> item) async {
     if (item['room_id'] != null) {
       // Room already exists, open directly
-      _navigateToChat(item['room_id'], item['display_name'], item['phone'], item['is_group'] ?? false);
+      _navigateToChat(item['room_id'], item['display_name'], item['phone'], item['is_group'] ?? false, item['profile_pic']);
     } else {
       // Room doesn't exist yet, need to create via API
       showDialog(
@@ -232,7 +234,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
     }
   }
 
-  void _navigateToChat(String roomId, String displayName, String otherPhone, [bool isGroup = false]) {
+  void _navigateToChat(String roomId, String displayName, String otherPhone, [bool isGroup = false, String? profilePic]) {
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -240,6 +242,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
           roomId: roomId,
           otherUserName: displayName,
           otherUserPhone: otherPhone,
+          profilePic: profilePic,
           isGroup: isGroup,
         ),
       ),
@@ -252,13 +255,42 @@ class _ChatListScreenState extends State<ChatListScreen> {
   Widget build(BuildContext context) {
     const primaryColor = Color(0xFF0F3460);
 
+    final filteredList = _mergedList.where((item) {
+      final name = (item['display_name'] ?? '').toString().toLowerCase();
+      final query = _searchQuery.toLowerCase().trim();
+      return name.contains(query);
+    }).toList();
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Chats'),
+        title: _searchQuery.isNotEmpty 
+            ? TextField(
+                autofocus: true,
+                style: const TextStyle(color: Colors.white),
+                decoration: const InputDecoration(
+                  hintText: 'Cari obrolan...',
+                  hintStyle: TextStyle(color: Colors.white70),
+                  border: InputBorder.none,
+                ),
+                onChanged: (val) => setState(() => _searchQuery = val),
+              )
+            : const Text('Chats'),
         backgroundColor: primaryColor,
         foregroundColor: Colors.white,
         elevation: 0,
         actions: [
+          IconButton(
+            icon: Icon(_searchQuery.isNotEmpty ? Icons.close : Icons.search),
+            onPressed: () {
+              setState(() {
+                if (_searchQuery.isNotEmpty) {
+                  _searchQuery = '';
+                } else {
+                  _searchQuery = ' ';
+                }
+              });
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.group_add),
             onPressed: () {
@@ -294,14 +326,14 @@ class _ChatListScreenState extends State<ChatListScreen> {
                 ],
               ),
             )
-          : _mergedList.isEmpty
+          : filteredList.isEmpty
           ? const Center(child: Text('Belum ada obrolan atau kontak.'))
           : RefreshIndicator(
               onRefresh: _fetchData,
               child: ListView.builder(
-                itemCount: _mergedList.length,
+                itemCount: filteredList.length,
                 itemBuilder: (context, index) {
-                  final item = _mergedList[index];
+                  final item = filteredList[index];
                   final timeStr = _formatTime(item['last_message_time']);
 
                   return ListTile(

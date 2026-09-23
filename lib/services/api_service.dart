@@ -418,13 +418,19 @@ class ApiService {
     }
   }
 
-  static Future<Map<String, dynamic>> startCall(String phone, {String callType = 'audio'}) async {
+  static Future<Map<String, dynamic>> startCall(String phone, {String callType = 'audio', String? groupId}) async {
     try {
       final headers = await getAuthHeaders();
+      final body = <String, dynamic>{'callType': callType};
+      if (groupId != null && groupId.isNotEmpty) {
+        body['groupId'] = groupId;
+      } else {
+        body['phone'] = phone;
+      }
       final response = await http.post(
         Uri.parse('$baseUrl/calls/start'),
         headers: headers,
-        body: jsonEncode({'phone': phone, 'callType': callType}),
+        body: jsonEncode(body),
       );
       if (response.statusCode == 201) {
         return {'success': true, 'data': jsonDecode(response.body)};
@@ -437,7 +443,26 @@ class ApiService {
     }
   }
 
-  static Future<Map<String, dynamic>> getActiveCall(String callId) async {
+  static Future<Map<String, dynamic>> inviteToCall(String callId, String phone) async {
+    try {
+      final headers = await getAuthHeaders();
+      final response = await http.post(
+        Uri.parse('$baseUrl/calls/$callId/invite'),
+        headers: headers,
+        body: jsonEncode({'phone': phone}),
+      );
+      if (response.statusCode == 200) {
+        return {'success': true, 'data': jsonDecode(response.body)};
+      } else {
+        final err = jsonDecode(response.body);
+        return {'success': false, 'message': err['message'] ?? 'Gagal mengundang kontak'};
+      }
+    } catch (e) {
+      return {'success': false, 'message': 'Connection error: $e'};
+    }
+  }
+
+    static Future<Map<String, dynamic>> getActiveCall(String callId) async {
     try {
       final headers = await getAuthHeaders();
       final response = await http.get(

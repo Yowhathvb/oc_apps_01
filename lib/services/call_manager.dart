@@ -35,6 +35,13 @@ class CallManager extends ChangeNotifier {
       notifyListeners();
     });
 
+    _listener.on<TrackSubscribedEvent>((event) => notifyListeners());
+    _listener.on<TrackUnsubscribedEvent>((event) => notifyListeners());
+    _listener.on<TrackMutedEvent>((event) => notifyListeners());
+    _listener.on<TrackUnmutedEvent>((event) => notifyListeners());
+    _listener.on<LocalTrackPublishedEvent>((event) => notifyListeners());
+    _listener.on<LocalTrackUnpublishedEvent>((event) => notifyListeners());
+
   }
 
   late final Room _room;
@@ -60,6 +67,9 @@ class CallManager extends ChangeNotifier {
 
   // Initialize socket for incoming calls (called from main.dart)
   Future<void> initSocket() async {
+    final prefs = await SharedPreferences.getInstance();
+    final currentUserId = prefs.getString('user_id');
+
     final tokenRes = await ApiService.getCallsSocketToken();
     if (!tokenRes['success']) {
       debugPrint('[CallManager] Failed to get calls socket token');
@@ -96,7 +106,19 @@ class CallManager extends ChangeNotifier {
       final callId = callData['id'].toString();
       final isVideoCall = callData['type'] == 'video';
 
-      handleIncomingCall(callId, callerName, callerPhone, isVideoCall);
+      final acceptedBy = (callData['accepted_by'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [];
+      final rejectedBy = (callData['rejected_by'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [];
+
+      final hasAccepted = currentUserId != null && acceptedBy.contains(currentUserId);
+      final hasRejected = currentUserId != null && rejectedBy.contains(currentUserId);
+
+      if (hasAccepted) {
+        if (state == CallState.ringing || state == CallState.calling) {
+          _fetchLiveKitTokenAndConnect();
+        }
+      } else if (!hasRejected) {
+        handleIncomingCall(callId, callerName, callerPhone, isVideoCall);
+      }
     });
 
     _socket?.on('call:accepted', (data) {
@@ -145,7 +167,7 @@ class CallManager extends ChangeNotifier {
   // ---------------------------------------------------------
   // PENELPON (CALLER)
   // ---------------------------------------------------------
-  Future<void> startCall(String phone, String otherName, bool video) async {
+  Future<void> startCall(String phone, String otherName, bool video, {String? groupId}) async {
     if (isActive) return;
     
     await Permission.microphone.request();
@@ -163,7 +185,7 @@ class CallManager extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final callResult = await ApiService.startCall(phone, callType: video ? 'video' : 'audio');
+      final callResult = await ApiService.startCall(phone, callType: video ? 'video' : 'audio', groupId: groupId);
       if (!callResult['success']) throw Exception(callResult['message']);
       
       currentCallId = callResult['data']['call']['id'].toString();
@@ -274,6 +296,13 @@ class CallManager extends ChangeNotifier {
     await _room.localParticipant?.setCameraEnabled(!enabled);
     isVideoMuted = enabled;
     notifyListeners();
+  }
+
+  Future<Map<String, dynamic>> inviteParticipant(String phone) async {
+    if (currentCallId == null) {
+      return {'success': false, 'message': 'Tidak ada panggilan aktif'};
+    }
+    return await ApiService.inviteToCall(currentCallId!, phone);
   }
 
   Future<void> endCall() async {

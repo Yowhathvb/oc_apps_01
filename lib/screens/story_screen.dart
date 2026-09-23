@@ -10,6 +10,7 @@ import 'story_viewer_screen.dart';
 import 'text_status_screen.dart';
 import 'story_privacy_screen.dart';
 import 'my_stories_screen.dart';
+import 'story_preview_screen.dart';
 
 class StoryScreen extends StatefulWidget {
   const StoryScreen({super.key});
@@ -129,12 +130,26 @@ class _StoryScreenState extends State<StoryScreen> {
 
     if (result != null && result is File) {
       if (!mounted) return;
-      // You can add a preview screen here, but for now we upload directly
+      
+      final isVideo = result.path.toLowerCase().endsWith('.mp4');
+      final caption = await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => StoryPreviewScreen(
+            file: result,
+            isVideo: isVideo,
+          ),
+        ),
+      );
+
+      if (caption == null) return; // User cancelled
+
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Mengunggah status...')),
       );
       
-      final res = await ApiService.uploadMediaStory(result.path, '');
+      final res = await ApiService.uploadMediaStory(result.path, caption as String);
       if (res['success']) {
         _fetchStories();
       } else {

@@ -12,11 +12,15 @@ import '../services/database_helper.dart';
 import '../widgets/audio_bubble.dart';
 import '../widgets/video_bubble.dart';
 import '../services/call_manager.dart';
+import 'custom_gallery_picker.dart';
+import 'package:wechat_assets_picker/wechat_assets_picker.dart';
+import 'dart:io';
 
 class ChatScreen extends StatefulWidget {
   final String roomId;
   final String otherUserName;
   final String otherUserPhone;
+  final String? profilePic;
   final bool isGroup;
 
   const ChatScreen({
@@ -24,6 +28,7 @@ class ChatScreen extends StatefulWidget {
     required this.roomId,
     required this.otherUserName,
     required this.otherUserPhone,
+    this.profilePic,
     this.isGroup = false,
   });
 
@@ -172,6 +177,7 @@ class _ChatScreenState extends State<ChatScreen> {
       'sender_id': int.tryParse(_myUserId ?? '0'),
       'message': text,
       'created_at': DateTime.now().toIso8601String(),
+      'status': 'pending', // Added to allow socket listener to remove it
     };
     
     setState(() {
@@ -227,10 +233,19 @@ class _ChatScreenState extends State<ChatScreen> {
                 title: const Text('Galeri (Gambar/Video)'),
                 onTap: () async {
                   Navigator.pop(context);
-                  final picked = await _picker.pickMedia();
-                  if (picked != null) {
-                    final type = picked.name.toLowerCase().endsWith('.mp4') ? 'video' : 'image';
-                    _uploadMedia(picked.path, type);
+                  final List<AssetEntity>? assets = await AssetPicker.pickAssets(
+                    context,
+                    pickerConfig: const AssetPickerConfig(
+                      requestType: RequestType.common,
+                      maxAssets: 1, // Change if you want multiple upload
+                    ),
+                  );
+                  if (assets != null && assets.isNotEmpty) {
+                    final File? file = await assets.first.file;
+                    if (file != null) {
+                      final type = assets.first.type == AssetType.video ? 'video' : 'image';
+                      _uploadMedia(file.path, type);
+                    }
                   }
                 },
               ),
@@ -239,9 +254,20 @@ class _ChatScreenState extends State<ChatScreen> {
                 title: const Text('Kamera (Gambar)'),
                 onTap: () async {
                   Navigator.pop(context);
-                  final picked = await _picker.pickImage(source: ImageSource.camera);
-                  if (picked != null) {
-                    _uploadMedia(picked.path, 'image');
+                  final result = await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const CustomGalleryPicker(
+                        showVideoTab: true,
+                        showTextTab: false,
+                        initialTab: 'kamera',
+                      ),
+                    ),
+                  );
+                  
+                  if (result != null && result is File) {
+                    final type = result.path.toLowerCase().endsWith('.mp4') ? 'video' : 'image';
+                    _uploadMedia(result.path, type);
                   }
                 },
               ),
@@ -369,7 +395,17 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _startCall(bool isVideo) async {
-    CallManager.instance.startCall(widget.otherUserPhone, widget.otherUserName, isVideo);
+    if (widget.isGroup) {
+      // Group call: pass groupId so server rings all members
+      CallManager.instance.startCall(
+        '',
+        widget.otherUserName,
+        isVideo,
+        groupId: widget.roomId.toString(),
+      );
+    } else {
+      CallManager.instance.startCall(widget.otherUserPhone, widget.otherUserName, isVideo);
+    }
   }
 
   String _normalizePhone(String? p) {
@@ -402,16 +438,33 @@ class _ChatScreenState extends State<ChatScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        title: Row(
           children: [
-            Text(widget.otherUserName, style: const TextStyle(fontSize: 18)),
-            if (subtitle.isNotEmpty)
-              Text(
-                subtitle,
-                style: const TextStyle(fontSize: 12, color: Colors.white70),
-                overflow: TextOverflow.ellipsis,
+            CircleAvatar(
+              radius: 20,
+              backgroundColor: Colors.white24,
+              backgroundImage: widget.profilePic != null && widget.profilePic!.isNotEmpty
+                  ? CachedNetworkImageProvider(ApiService.getServerUrl(widget.profilePic!))
+                  : null,
+              child: widget.profilePic == null || widget.profilePic!.isEmpty
+                  ? const Icon(Icons.person, color: Colors.white)
+                  : null,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(widget.otherUserName, style: const TextStyle(fontSize: 18)),
+                  if (subtitle.isNotEmpty)
+                    Text(
+                      subtitle,
+                      style: const TextStyle(fontSize: 12, color: Colors.white70),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                ],
               ),
+            ),
           ],
         ),
         backgroundColor: primaryColor,
@@ -424,10 +477,6 @@ class _ChatScreenState extends State<ChatScreen> {
           IconButton(
             icon: const Icon(Icons.phone),
             onPressed: () => _startCall(false),
-          ),
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _fetchMessages,
           ),
         ],
       ),
@@ -500,12 +549,25 @@ class _ChatScreenState extends State<ChatScreen> {
                                         ),
                                       ],
                                       const SizedBox(height: 4),
-                                      Text(
-                                        _formatTime(msg['created_at']),
-                                        style: TextStyle(
-                                          color: isMe ? Colors.white70 : Colors.black54,
-                                          fontSize: 10,
-                                        ),
+                                      Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Text(
+                                            _formatTime(msg['created_at']),
+                                            style: TextStyle(
+                                              color: isMe ? Colors.white70 : Colors.black54,
+                                              fontSize: 10,
+                                            ),
+                                          ),
+                                          if (isMe) ...[
+                                            const SizedBox(width: 4),
+                                            Icon(
+                                              msg['status'] == 'pending' ? Icons.access_time : Icons.done,
+                                              size: 12,
+                                              color: Colors.white70,
+                                            ),
+                                          ],
+                                        ],
                                       ),
                                     ],
                                   ),
