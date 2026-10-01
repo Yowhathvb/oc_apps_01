@@ -91,11 +91,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _uploadProfilePic(String path) async {
     setState(() => _isLoading = true);
-    final res = await ApiService.updateProfile(_name, _about, path);
+    final res = await ApiService.uploadProfilePicture(path);
     if (mounted) {
       if (res['success'] == true) {
         setState(() {
-          _profilePic = res['profile_pic'];
+          _profilePic = res['data'] != null ? res['data']['profile_pic'] : res['profile_pic']; 
         });
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Foto profil berhasil diperbarui')),
@@ -106,6 +106,83 @@ class _ProfileScreenState extends State<ProfileScreen> {
         );
       }
       setState(() => _isLoading = false);
+    }
+  }
+
+
+  void _showImageDialog() {
+    if (_profilePic == null || _profilePic!.isEmpty) return;
+    Navigator.of(context).push(
+      PageRouteBuilder(
+        transitionDuration: const Duration(milliseconds: 300),
+        pageBuilder: (context, animation, secondaryAnimation) {
+          return Scaffold(
+            backgroundColor: Colors.white,
+            appBar: AppBar(
+              backgroundColor: Colors.white,
+              elevation: 0,
+              iconTheme: const IconThemeData(color: Colors.black),
+              actions: [
+                IconButton(
+                  icon: const Icon(Icons.delete, color: Colors.red),
+                  onPressed: () {
+                    Navigator.pop(context);
+                    _deleteProfilePic();
+                  },
+                ),
+              ],
+            ),
+            body: Center(
+              child: Hero(
+                tag: 'profile_pic_hero',
+                child: Image.network(
+                  ApiService.getServerUrl(_profilePic!),
+                  fit: BoxFit.contain,
+                  width: double.infinity,
+                ),
+              ),
+            ),
+          );
+        },
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          return FadeTransition(
+            opacity: animation,
+            child: child,
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _deleteProfilePic() async {
+    setState(() => _isLoading = true);
+    // Assuming backend will have a DELETE endpoint or updateProfile with null
+    try {
+      final res = await ApiService.deleteProfilePicture();
+      if (res['success'] == true) {
+        setState(() {
+          _profilePic = null;
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Foto profil berhasil dihapus')),
+          );
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(res['message'] ?? 'Gagal menghapus foto')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Terjadi kesalahan saat menghapus foto')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -207,15 +284,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   Center(
                     child: Stack(
                       children: [
-                        CircleAvatar(
-                          radius: 75,
-                          backgroundColor: Colors.grey[800],
-                          backgroundImage: _profilePic != null
-                              ? NetworkImage('${ApiService.baseUrl.replaceAll('/api', '')}$_profilePic')
-                              : null,
-                          child: _profilePic == null
-                              ? const Icon(Icons.person, size: 80, color: Colors.black87)
-                              : null,
+                        GestureDetector(
+                          onTap: _showImageDialog,
+                          child: Hero(
+                            tag: 'profile_pic_hero',
+                            child: CircleAvatar(
+                              radius: 75,
+                              backgroundColor: Colors.grey[800],
+                              backgroundImage: _profilePic != null && _profilePic!.isNotEmpty
+                                  ? NetworkImage('${ApiService.baseUrl.replaceAll('/api', '')}$_profilePic')
+                                  : null,
+                              child: _profilePic == null || _profilePic!.isEmpty
+                                  ? const Icon(Icons.person, size: 80, color: Colors.black87)
+                                  : null,
+                            ),
+                          ),
                         ),
                         Positioned(
                           bottom: 0,

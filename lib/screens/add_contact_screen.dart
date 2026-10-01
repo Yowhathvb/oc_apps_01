@@ -30,12 +30,14 @@ class _AddContactScreenState extends State<AddContactScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // 1. Simpan kontak ke database lokal SQLite
-      await DatabaseHelper().saveContact(phone, name);
-
-      // 2. Langsung cari user ID dan Room ID di API
+      // 1. Cek apakah nomor ada di API
       final findResult = await ApiService.findUserByPhone(phone);
-      if (findResult['success']) {
+      final isRegistered = findResult['success'] == true;
+
+      // 2. Simpan kontak ke database lokal SQLite dengan flag is_registered
+      await DatabaseHelper().saveContact(phone, name, isRegistered: isRegistered);
+
+      if (isRegistered) {
         final targetUserId = findResult['data']['id'].toString();
         
         final prefs = await SharedPreferences.getInstance();
@@ -69,15 +71,17 @@ class _AddContactScreenState extends State<AddContactScreen> {
         }
       }
       
-      // Jika gagal mendapatkan user atau gagal membuat room, tampilkan error yang sebenarnya
+      // Jika nomor tidak terdaftar atau gagal membuat room, kita kembali dengan sukses (karena kontak sudah tersimpan lokal)
       if (mounted) {
-        final errorMsg = !findResult['success'] 
-            ? findResult['message'] ?? 'User tidak ditemukan'
-            : 'Gagal membuat room chat';
-            
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Kontak disimpan secara lokal, namun gagal terhubung: $errorMsg')),
-        );
+        if (!isRegistered) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Kontak disimpan, namun belum terdaftar di aplikasi')),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Kontak disimpan, tetapi gagal membuat obrolan')),
+          );
+        }
         Navigator.pop(context, true); 
       }
     } catch (e) {

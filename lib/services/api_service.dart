@@ -189,7 +189,7 @@ class ApiService {
     }
   }
 
-  static Future<Map<String, dynamic>> sendMessage(String chatRoomId, String message) async {
+  static Future<Map<String, dynamic>> sendMessage(String chatRoomId, String message, {int? replyToId, String? ciphertext, String? type}) async {
     try {
       final headers = await getAuthHeaders();
       final response = await http.post(
@@ -318,7 +318,7 @@ class ApiService {
     }
   }
 
-  static Future<Map<String, dynamic>> sendGroupMessage(String groupId, String message) async {
+  static Future<Map<String, dynamic>> sendGroupMessage(String groupId, String message, {int? replyToId, String? ciphertext, String? type}) async {
     try {
       final headers = await getAuthHeaders();
       final response = await http.post(
@@ -601,6 +601,31 @@ static Future<Map<String, dynamic>> getCallToken(String callId) async {
 
   static Future<Map<String, dynamic>> deleteStory(String storyId) async { try { final headers = await getAuthHeaders(); final response = await http.delete(Uri.parse('$baseUrl/media/stories/$storyId'), headers: headers); if (response.statusCode == 200 || response.statusCode == 201) return {'success': true}; return {'success': false, 'message': 'Gagal hapus story'}; } catch (e) { return {'success': false, 'message': 'Terjadi kesalahan sistem'}; } }
   static Future<Map<String, dynamic>> deleteMediaPost(String postId) async { try { final headers = await getAuthHeaders(); final response = await http.delete(Uri.parse('$baseUrl/media/posts/$postId'), headers: headers); if (response.statusCode == 200 || response.statusCode == 201) return jsonDecode(response.body); return {'success': false, 'message': 'Gagal menghapus postingan'}; } catch (e) { return {'success': false, 'message': 'Terjadi kesalahan sistem'}; } }
+
+    static Future<Map<String, dynamic>> uploadProfilePicture(String profilePicPath) async {
+    try {
+      final headers = await getAuthHeaders();
+      var request = http.MultipartRequest('POST', Uri.parse('$baseUrl/v1/users/profile/picture'));
+      headers.remove('Content-Type');
+      request.headers.addAll(headers);
+      request.files.add(await http.MultipartFile.fromPath('file', profilePicPath));
+      final response = await request.send();
+      final respStr = await response.stream.bytesToString();
+      return jsonDecode(respStr);
+    } catch (e) {
+      return {'success': false, 'message': 'Terjadi kesalahan saat upload foto'};
+    }
+  }
+
+    static Future<Map<String, dynamic>> deleteProfilePicture() async {
+    try {
+      final headers = await getAuthHeaders();
+      var response = await http.delete(Uri.parse('/v1/users/profile/picture'), headers: headers);
+      return jsonDecode(response.body);
+    } catch (e) {
+      return {'success': false, 'message': 'Terjadi kesalahan sistem'};
+    }
+  }
 
   static Future<Map<String, dynamic>> updateProfile(String name, String about, [String? profilePicPath]) async { try { final headers = await getAuthHeaders(); var request = http.MultipartRequest('PUT', Uri.parse('$baseUrl/user/profile')); headers.remove('Content-Type'); request.headers.addAll(headers); request.fields['name'] = name; request.fields['about'] = about; if (profilePicPath != null && profilePicPath.isNotEmpty) { request.files.add(await http.MultipartFile.fromPath('profile_pic', profilePicPath)); } final response = await request.send(); final respStr = await response.stream.bytesToString(); return jsonDecode(respStr); } catch (e) { return {'success': false, 'message': 'Terjadi kesalahan sistem'}; } }
   static Future<Map<String, dynamic>> getStories() async {
@@ -1245,4 +1270,4 @@ static Future<Map<String, dynamic>> getCallToken(String callId) async {
       return {'success': false, 'message': e.toString()};
     }
   }
-}
+}

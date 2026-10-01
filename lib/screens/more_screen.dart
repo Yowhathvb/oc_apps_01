@@ -64,7 +64,7 @@ class _MoreScreenState extends State<MoreScreen> {
         _name = user['name'] ?? localName;
         _phone = user['phone'] ?? localPhone;
         _username = user['username'] ?? localUsername;
-        _profilePicture = user['profile_picture'] ?? localProfilePic;
+        _profilePicture = user['profile_pic'] ?? user['profile_picture'] ?? localProfilePic;
         _isLoading = false;
       });
       // Simpan ke prefs agar sinkron
@@ -171,7 +171,7 @@ class _MoreScreenState extends State<MoreScreen> {
                           radius: 30,
                           backgroundColor: primaryColor,
                           backgroundImage: _profilePicture.isNotEmpty 
-                              ? CachedNetworkImageProvider('${ApiService.baseUrl.replaceAll('/api/v1', '')}/uploads/profiles/$_profilePicture')
+                              ? CachedNetworkImageProvider(ApiService.getServerUrl(_profilePicture))
                               : null,
                           child: _profilePicture.isEmpty 
                               ? Text(

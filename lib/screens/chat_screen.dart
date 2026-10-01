@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
 import '../services/api_service.dart';
+import '../services/encryption_service.dart';
 import '../services/database_helper.dart';
 import '../widgets/audio_bubble.dart';
 import '../widgets/video_bubble.dart';
@@ -54,6 +55,7 @@ class _ChatScreenState extends State<ChatScreen> {
   
   bool _isComposing = false;
   bool _isRecording = false;
+  Map<String, dynamic>? _replyingToMessage;
 
   @override
   void initState() {
@@ -88,8 +90,16 @@ class _ChatScreenState extends State<ChatScreen> {
       _socket!.emit('join', widget.isGroup ? 'group_${widget.roomId}' : widget.roomId);
     });
 
-    _socket!.on('message', (data) {
+    _socket!.on('message', (data) async {
       if (mounted && data != null) {
+        if (data['ciphertext'] != null && data['sender_id'].toString() != _myUserId) {
+          try {
+            final decrypted = EncryptionService.decryptMessage(data['ciphertext']);
+            data['message'] = decrypted;
+          } catch (e) {
+            print('Socket decrypt error: $e');
+          }
+        }
         setState(() {
           final exists = _messages.any((m) => m['id'].toString() == data['id'].toString());
           if (!exists) {
@@ -137,9 +147,53 @@ class _ChatScreenState extends State<ChatScreen> {
 
     final result = widget.isGroup ? await ApiService.getGroupMessages(widget.roomId) : await ApiService.getChatMessages(widget.roomId);
     if (result['success']) {
-      if (mounted) {
+      final List<dynamic> msgs = result['data']['messages'] ?? [];
+          
+
+                    // Decrypt messages if they have ciphertext
+
+                    for (var i = 0; i < msgs.length; i++) {
+
+                      if (msgs[i]['ciphertext'] != null && msgs[i]['type'] != null) {
+
+                        try {
+
+                           // If we didn't send it, decrypt it using the sender's phone number as ID
+
+                           // Wait, what if we sent it? If we sent it, we can't easily decrypt it unless we encrypt it for ourselves too (Signal handles this via SessionCipher on our own device, but it requires sync).
+
+                           // For now, if we sent it, maybe the server returns the plain text? Or we rely on local DB.
+
+                           String remoteId = msgs[i]['sender_id'].toString() == _myUserId ? widget.otherUserPhone : widget.otherUserPhone; 
+
+                           // We actually only encrypt ONE way. This is a prototype limitation!
+
+                           if (msgs[i]['sender_id'].toString() != _myUserId) {
+
+                             final decrypted = EncryptionService.decryptMessage(msgs[i]['ciphertext']);
+
+                             msgs[i]['message'] = decrypted;
+
+                           } else {
+
+                             // Cannot decrypt our own ciphertext without sender keys or sending a copy to ourselves
+
+                             msgs[i]['message'] = msgs[i]['message'] ?? 'Pesan terenkripsi';
+
+                           }
+
+                        } catch (e) {
+
+                           print('Decrypt error: \$e');
+
+                        }
+
+                      }
+
+                    }
+
+                if (mounted) {
         setState(() {
-          final List<dynamic> msgs = result['data']['messages'] ?? [];
           _messages = msgs.reversed.toList();
           if (widget.isGroup && result['data']['members'] != null) {
             _groupMembers = result['data']['members'];
@@ -177,16 +231,75 @@ class _ChatScreenState extends State<ChatScreen> {
       'sender_id': int.tryParse(_myUserId ?? '0'),
       'message': text,
       'created_at': DateTime.now().toIso8601String(),
-      'status': 'pending', // Added to allow socket listener to remove it
+      'status': 'pending', 
+      'reply_to_id': _replyingToMessage?['id'],
+      'reply_message': _replyingToMessage != null ? _replyingToMessage!['message'] ?? 'Media' : null,
+      'reply_sender_name': _replyingToMessage != null 
+          ? (_replyingToMessage!['sender_id'].toString() == _myUserId 
+              ? 'Anda' 
+              : (_contactMap[_normalizePhone(_replyingToMessage!['phone']?.toString())] ?? _replyingToMessage!['name'] ?? 'User'))
+          : null,
     };
     
+    final int? replyToId = _replyingToMessage?['id'] is int 
+        ? _replyingToMessage!['id'] 
+        : int.tryParse(_replyingToMessage?['id']?.toString() ?? '');
+
     setState(() {
       _messages.insert(0, tempMsg);
       _messageController.clear();
+      _replyingToMessage = null;
     });
     _scrollToBottom();
 
-    final result = widget.isGroup ? await ApiService.sendGroupMessage(widget.roomId, text) : await ApiService.sendMessage(widget.roomId, text);
+    
+
+
+        String? ciphertext;
+
+
+        String? cipherType;
+
+
+        
+
+
+        if (!widget.isGroup) {
+
+
+          try {
+
+
+            // otherUserPhone acts as remoteUserId for now
+
+
+            ciphertext = EncryptionService.encryptMessage(text);
+            cipherType = 'normal';
+
+
+          } catch (e) {
+
+
+            print('Encryption error: \$e');
+
+
+          }
+
+
+        }
+
+
+    
+
+
+        final result = widget.isGroup 
+
+
+            ? await ApiService.sendGroupMessage(widget.roomId, text, replyToId: replyToId) 
+
+
+            : await ApiService.sendMessage(widget.roomId, text, replyToId: replyToId, ciphertext: ciphertext, type: cipherType);
+
     if (!result['success']) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -510,23 +623,63 @@ class _ChatScreenState extends State<ChatScreen> {
                                 }
                               }
 
-                              final messageBubble = Align(
-                                alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-                                child: Container(
-                                  margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                  decoration: BoxDecoration(
-                                    color: isMe ? primaryColor : Colors.grey.shade200,
-                                    borderRadius: BorderRadius.only(
-                                      topLeft: const Radius.circular(16),
-                                      topRight: const Radius.circular(16),
-                                      bottomLeft: isMe ? const Radius.circular(16) : const Radius.circular(4),
-                                      bottomRight: isMe ? const Radius.circular(4) : const Radius.circular(16),
+                              final messageBubble = SwipeToReply(
+                                onReply: () {
+                                  setState(() {
+                                    _replyingToMessage = msg;
+                                  });
+                                },
+                                child: Align(
+                                  alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+                                  child: Container(
+                                    margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                    decoration: BoxDecoration(
+                                      color: isMe ? primaryColor : Colors.grey.shade200,
+                                      borderRadius: BorderRadius.only(
+                                        topLeft: const Radius.circular(16),
+                                        topRight: const Radius.circular(16),
+                                        bottomLeft: isMe ? const Radius.circular(16) : const Radius.circular(4),
+                                        bottomRight: isMe ? const Radius.circular(4) : const Radius.circular(16),
+                                      ),
                                     ),
-                                  ),
-                                  child: Column(
-                                    crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-                                    children: [
+                                    child: Column(
+                                      crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                                      children: [
+                                        if (msg['reply_to_id'] != null || msg['reply_message'] != null) ...[
+                                          Container(
+                                            margin: const EdgeInsets.only(bottom: 4),
+                                            padding: const EdgeInsets.all(8),
+                                            decoration: BoxDecoration(
+                                              color: Colors.black.withOpacity(0.1),
+                                              border: Border(left: BorderSide(color: Colors.orange.shade800, width: 4)),
+                                              borderRadius: BorderRadius.circular(4),
+                                            ),
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  msg['reply_sender_name'] ?? 'Pesan balasan',
+                                                  style: TextStyle(
+                                                    color: Colors.orange.shade800,
+                                                    fontWeight: FontWeight.bold,
+                                                    fontSize: 12,
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 2),
+                                                Text(
+                                                  msg['reply_message'] ?? 'Media',
+                                                  style: TextStyle(
+                                                    color: isMe ? Colors.white70 : Colors.black87,
+                                                    fontSize: 12,
+                                                  ),
+                                                  maxLines: 1,
+                                                  overflow: TextOverflow.ellipsis,
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
                                       if (widget.isGroup && !isMe) ...[
                                         Text(
                                           _contactMap[_normalizePhone(msg['phone']?.toString())] ?? msg['name'] ?? 'User',
@@ -572,7 +725,8 @@ class _ChatScreenState extends State<ChatScreen> {
                                     ],
                                   ),
                                 ),
-                              );
+                              ),
+                            );
 
                               if (showDateDivider) {
                                 return Column(
@@ -604,7 +758,7 @@ class _ChatScreenState extends State<ChatScreen> {
               color: Colors.white,
               boxShadow: [
                 BoxShadow(
-                  color: Colors.grey.withValues(alpha: 0.1),
+                  color: Colors.grey.withOpacity(0.1),
                   spreadRadius: 1,
                   blurRadius: 3,
                   offset: const Offset(0, -1),
@@ -612,8 +766,57 @@ class _ChatScreenState extends State<ChatScreen> {
               ],
             ),
             child: SafeArea(
-              child: Row(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
+                  if (_replyingToMessage != null)
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 8, left: 8, right: 8),
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade200,
+                        border: Border(left: BorderSide(color: primaryColor, width: 4)),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  _replyingToMessage!['sender_id'].toString() == _myUserId 
+                                      ? 'Anda' 
+                                      : (_contactMap[_normalizePhone(_replyingToMessage!['phone']?.toString())] ?? _replyingToMessage!['name'] ?? 'User'),
+                                  style: TextStyle(
+                                    color: primaryColor,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  _replyingToMessage!['message'] ?? 'Media',
+                                  style: const TextStyle(fontSize: 12, color: Colors.black87),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.close, size: 20),
+                            onPressed: () {
+                              setState(() {
+                                _replyingToMessage = null;
+                              });
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  Row(
+                    children: [
                   IconButton(
                     icon: const Icon(Icons.attach_file, color: Colors.grey),
                     onPressed: _showAttachmentModal,
@@ -659,7 +862,85 @@ class _ChatScreenState extends State<ChatScreen> {
                     ),
                 ],
               ),
+            ],
+          ),
+        ),
+      ),
+        ],
+      ),
+    );
+  }
+}
+
+
+class SwipeToReply extends StatefulWidget {
+  final Widget child;
+  final VoidCallback onReply;
+
+  const SwipeToReply({Key? key, required this.child, required this.onReply}) : super(key: key);
+
+  @override
+  _SwipeToReplyState createState() => _SwipeToReplyState();
+}
+
+class _SwipeToReplyState extends State<SwipeToReply> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  double _dragExtent = 0.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 200));
+    _controller.addListener(() {
+      setState(() {
+        _dragExtent = _controller.value * _dragExtent;
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onHorizontalDragUpdate: (details) {
+        if (details.primaryDelta! > 0) {
+          setState(() {
+            _dragExtent += details.primaryDelta!;
+            if (_dragExtent > 60.0) _dragExtent = 60.0;
+          });
+        }
+      },
+      onHorizontalDragEnd: (details) {
+        if (_dragExtent >= 40.0) {
+          widget.onReply();
+        }
+        _controller.reverse(from: 1.0).then((_) {
+          _controller.value = 0.0;
+          setState(() {
+            _dragExtent = 0.0;
+          });
+        });
+      },
+      child: Stack(
+        alignment: Alignment.centerLeft,
+        children: [
+          if (_dragExtent > 0)
+            Positioned(
+              left: 16.0,
+              child: Opacity(
+                opacity: (_dragExtent / 40.0).clamp(0.0, 1.0),
+                child: const Icon(Icons.reply, color: Colors.grey),
+              ),
             ),
+          Transform.translate(
+            offset: Offset(_dragExtent, 0),
+            child: widget.child,
           ),
         ],
       ),

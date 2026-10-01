@@ -26,7 +26,7 @@ class DatabaseHelper {
     final path = await _getDbPath();
     return await openDatabase(
       path,
-      version: 3, // Bumped version to 3 for call type
+      version: 5, // Bumped version to 5 for pinned_chats
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -37,10 +37,12 @@ class DatabaseHelper {
       CREATE TABLE contacts (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         phone_number TEXT UNIQUE NOT NULL,
-        saved_name TEXT NOT NULL
+        saved_name TEXT NOT NULL,
+        is_registered INTEGER DEFAULT 0
       )
     ''');
     await _createCallHistoryTable(db);
+    await _createPinnedChatsTable(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -49,6 +51,12 @@ class DatabaseHelper {
     }
     if (oldVersion < 3) {
       await db.execute('ALTER TABLE call_history ADD COLUMN type TEXT DEFAULT "audio"');
+    }
+    if (oldVersion < 4) {
+      await db.execute('ALTER TABLE contacts ADD COLUMN is_registered INTEGER DEFAULT 0');
+    }
+    if (oldVersion < 5) {
+      await _createPinnedChatsTable(db);
     }
   }
 
@@ -66,12 +74,25 @@ class DatabaseHelper {
     ''');
   }
 
+  Future<void> _createPinnedChatsTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE pinned_chats (
+        id TEXT PRIMARY KEY,
+        pinned_at INTEGER NOT NULL
+      )
+    ''');
+  }
+
   // Insert or update a contact
-  Future<void> saveContact(String phoneNumber, String savedName) async {
+  Future<void> saveContact(String phoneNumber, String savedName, {bool isRegistered = false}) async {
     final db = await database;
     await db.insert(
       'contacts',
-      {'phone_number': phoneNumber, 'saved_name': savedName},
+      {
+        'phone_number': phoneNumber, 
+        'saved_name': savedName,
+        'is_registered': isRegistered ? 1 : 0
+      },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
@@ -129,5 +150,33 @@ class DatabaseHelper {
   Future<void> clearCallHistory() async {
     final db = await database;
     await db.delete('call_history');
+  }
+
+  // --- Pinned Chats Methods ---
+
+  Future<void> pinChat(String id) async {
+    final db = await database;
+    await db.insert(
+      'pinned_chats',
+      {
+        'id': id,
+        'pinned_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<void> unpinChat(String id) async {
+    final db = await database;
+    await db.delete(
+      'pinned_chats',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> getPinnedChats() async {
+    final db = await database;
+    return await db.query('pinned_chats', orderBy: 'pinned_at DESC');
   }
 }
