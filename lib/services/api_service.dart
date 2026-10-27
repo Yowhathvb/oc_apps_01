@@ -140,6 +140,7 @@ class ApiService {
 
     if (userId != null) {
       headers['Cookie'] = 'user_id=$userId';
+      headers['x-user-id'] = userId;
     }
     if (sessionToken != null) {
       headers['Authorization'] = 'Bearer $sessionToken';
@@ -189,16 +190,62 @@ class ApiService {
     }
   }
 
-  static Future<Map<String, dynamic>> sendMessage(String chatRoomId, String message, {int? replyToId, String? ciphertext, String? type}) async {
+  static Future<Map<String, dynamic>> markMessagesAsDelivered(
+    String chatRoomId, {
+    List<int> messageIds = const [],
+  }) async {
     try {
       final headers = await getAuthHeaders();
       final response = await http.post(
-        Uri.parse('$baseUrl/chat/$chatRoomId/messages'),
+        Uri.parse('$baseUrl/chat/$chatRoomId/delivered'),
         headers: headers,
-        body: jsonEncode({'message': message}),
+        body: jsonEncode({'messageIds': messageIds}),
       );
 
       if (response.statusCode == 200) {
+        return {'success': true, 'data': jsonDecode(response.body)};
+      } else {
+        return {
+          'success': false,
+          'message': 'Gagal menandai pesan diterima: ${response.statusCode}'
+        };
+      }
+    } catch (e) {
+      return {'success': false, 'message': 'Connection error: $e'};
+    }
+  }
+
+  static Future<Map<String, dynamic>> sendMessage(
+    String chatRoomId, 
+    String message, {
+    int? replyToId, 
+    String? replyToSenderName,
+    String? replyToMessage,
+    String? replyToMediaType,
+    String? ciphertext, 
+    String? type,
+  }) async {
+    try {
+      final headers = await getAuthHeaders();
+      final body = <String, dynamic>{
+        'message': message,
+      };
+      if (replyToId != null) {
+        body['replyToId'] = replyToId;
+        if (replyToSenderName != null) body['replyToSenderName'] = replyToSenderName;
+        if (replyToMessage != null) body['replyToMessage'] = replyToMessage;
+        if (replyToMediaType != null) body['replyToMediaType'] = replyToMediaType;
+      }
+      if (ciphertext != null) body['ciphertext'] = ciphertext;
+      if (type != null) body['type'] = type;
+
+      final response = await http.post(
+        Uri.parse('$baseUrl/chat/$chatRoomId/messages'),
+        headers: headers,
+        body: jsonEncode(body),
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
         return {'success': true, 'data': jsonDecode(response.body)};
       } else {
         return {'success': false, 'message': 'Gagal mengirim pesan: ${response.statusCode}'};
@@ -208,7 +255,16 @@ class ApiService {
     }
   }
 
-  static Future<Map<String, dynamic>> uploadMedia(String chatRoomId, String filePath, String mediaType, {String caption = ''}) async {
+  static Future<Map<String, dynamic>> uploadMedia(
+    String chatRoomId, 
+    String filePath, 
+    String mediaType, {
+    String caption = '',
+    int? replyToId,
+    String? replyToSenderName,
+    String? replyToMessage,
+    String? replyToMediaType,
+  }) async {
     try {
       final headers = await getAuthHeaders();
       var request = http.MultipartRequest('POST', Uri.parse('$baseUrl/chat/$chatRoomId/upload-media'));
@@ -218,6 +274,12 @@ class ApiService {
       if (caption.isNotEmpty) {
         request.fields['caption'] = caption;
       }
+      if (replyToId != null) {
+        request.fields['replyToId'] = replyToId.toString();
+        if (replyToSenderName != null) request.fields['replyToSenderName'] = replyToSenderName;
+        if (replyToMessage != null) request.fields['replyToMessage'] = replyToMessage;
+        if (replyToMediaType != null) request.fields['replyToMediaType'] = replyToMediaType;
+      }
       
       request.files.add(await http.MultipartFile.fromPath('file', filePath));
       
@@ -225,7 +287,7 @@ class ApiService {
       var responseData = await response.stream.bytesToString();
       var data = jsonDecode(responseData);
       
-      if (response.statusCode == 200) {
+      if (response.statusCode == 200 || response.statusCode == 201) {
         return {'success': true, 'data': data};
       } else {
         return {'success': false, 'message': data['message'] ?? 'Gagal mengirim media'};
@@ -249,6 +311,62 @@ class ApiService {
         return {'success': true, 'data': data['user']};
       } else {
         return {'success': false, 'message': data['error'] ?? 'User tidak ditemukan'};
+      }
+    } catch (e) {
+      return {'success': false, 'message': 'Connection error: $e'};
+    }
+  }
+
+  static Future<Map<String, dynamic>> createChatRoomAndSendMessage({
+    required String phone,
+    String? roomId,
+    int? targetUserId,
+    required String message,
+    int? replyToId,
+    String? replyToSenderName,
+    String? replyToMessage,
+    String? replyToMediaType,
+  }) async {
+    try {
+      final headers = await getAuthHeaders();
+      final body = <String, dynamic>{
+        'phone': phone,
+        'message': message,
+      };
+      if (roomId != null && roomId.isNotEmpty) {
+        body['roomId'] = roomId;
+      }
+      if (targetUserId != null) {
+        body['targetUserId'] = targetUserId;
+      }
+      if (replyToId != null) {
+        body['replyToId'] = replyToId;
+        if (replyToSenderName != null) body['replyToSenderName'] = replyToSenderName;
+        if (replyToMessage != null) body['replyToMessage'] = replyToMessage;
+        if (replyToMediaType != null) body['replyToMediaType'] = replyToMediaType;
+      }
+
+      final response = await http.post(
+        Uri.parse('$baseUrl/chat/create'),
+        headers: headers,
+        body: jsonEncode(body),
+      );
+
+      final data = jsonDecode(response.body);
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return {
+          'success': true,
+          'isNew': data['isNew'] ?? false,
+          'chatRoomId': data['chatRoomId'] ?? roomId,
+          'targetUser': data['targetUser'],
+          'sentMessage': data['sentMessage'],
+          'message': data['message'],
+        };
+      } else {
+        return {
+          'success': false,
+          'message': data['message'] ?? 'Gagal membuat room chat',
+        };
       }
     } catch (e) {
       return {'success': false, 'message': 'Connection error: $e'};
@@ -318,13 +436,32 @@ class ApiService {
     }
   }
 
-  static Future<Map<String, dynamic>> sendGroupMessage(String groupId, String message, {int? replyToId, String? ciphertext, String? type}) async {
+  static Future<Map<String, dynamic>> sendGroupMessage(
+    String groupId, 
+    String message, {
+    int? replyToId, 
+    String? replyToSenderName,
+    String? replyToMessage,
+    String? replyToMediaType,
+    String? ciphertext, 
+    String? type,
+  }) async {
     try {
       final headers = await getAuthHeaders();
+      final body = <String, dynamic>{'message': message};
+      if (replyToId != null) {
+        body['replyToId'] = replyToId;
+        if (replyToSenderName != null) body['replyToSenderName'] = replyToSenderName;
+        if (replyToMessage != null) body['replyToMessage'] = replyToMessage;
+        if (replyToMediaType != null) body['replyToMediaType'] = replyToMediaType;
+      }
+      if (ciphertext != null) body['ciphertext'] = ciphertext;
+      if (type != null) body['type'] = type;
+
       final response = await http.post(
         Uri.parse('$baseUrl/chat/groups/$groupId/messages'),
         headers: headers,
-        body: jsonEncode({'message': message}),
+        body: jsonEncode(body),
       );
 
       if (response.statusCode == 200 || response.statusCode == 201) {
@@ -337,7 +474,16 @@ class ApiService {
     }
   }
 
-  static Future<Map<String, dynamic>> uploadGroupMedia(String groupId, String filePath, String mediaType, {String caption = ''}) async {
+  static Future<Map<String, dynamic>> uploadGroupMedia(
+    String groupId, 
+    String filePath, 
+    String mediaType, {
+    String caption = '',
+    int? replyToId,
+    String? replyToSenderName,
+    String? replyToMessage,
+    String? replyToMediaType,
+  }) async {
     try {
       final headers = await getAuthHeaders();
       var request = http.MultipartRequest('POST', Uri.parse('$baseUrl/chat/groups/$groupId/upload-media'));
@@ -346,6 +492,12 @@ class ApiService {
       request.fields['mediaType'] = mediaType;
       if (caption.isNotEmpty) {
         request.fields['caption'] = caption;
+      }
+      if (replyToId != null) {
+        request.fields['replyToId'] = replyToId.toString();
+        if (replyToSenderName != null) request.fields['replyToSenderName'] = replyToSenderName;
+        if (replyToMessage != null) request.fields['replyToMessage'] = replyToMessage;
+        if (replyToMediaType != null) request.fields['replyToMediaType'] = replyToMediaType;
       }
       
       request.files.add(await http.MultipartFile.fromPath('file', filePath));
@@ -358,6 +510,325 @@ class ApiService {
         return {'success': true, 'data': data};
       } else {
         return {'success': false, 'message': data['message'] ?? 'Gagal mengirim media grup'};
+      }
+    } catch (e) {
+      return {'success': false, 'message': 'Connection error: $e'};
+    }
+  }
+
+  static Future<Map<String, dynamic>> getGroupDetails(String groupId) async {
+    try {
+      final headers = await getAuthHeaders();
+      final response = await http.get(
+        Uri.parse('$baseUrl/chat/groups/$groupId'),
+        headers: headers,
+      );
+
+      final data = jsonDecode(response.body);
+      if (response.statusCode == 200) {
+        return {'success': true, 'data': data['group']};
+      } else {
+        return {'success': false, 'message': data['message'] ?? 'Gagal mengambil detail grup'};
+      }
+    } catch (e) {
+      return {'success': false, 'message': 'Connection error: $e'};
+    }
+  }
+
+  static Future<Map<String, dynamic>> updateGroupInfo(
+    String groupId, {
+    String? name,
+    String? description,
+    String? editInfoPermission,
+    String? sendMessagesPermission,
+  }) async {
+    try {
+      final headers = await getAuthHeaders();
+      final body = <String, dynamic>{};
+      if (name != null) body['name'] = name;
+      if (description != null) body['description'] = description;
+      if (editInfoPermission != null) body['edit_info_permission'] = editInfoPermission;
+      if (sendMessagesPermission != null) body['send_messages_permission'] = sendMessagesPermission;
+
+      final response = await http.patch(
+        Uri.parse('$baseUrl/chat/groups/$groupId'),
+        headers: headers,
+        body: jsonEncode(body),
+      );
+
+      final data = jsonDecode(response.body);
+      if (response.statusCode == 200) {
+        return {'success': true, 'data': data['group'], 'message': data['message']};
+      } else {
+        return {'success': false, 'message': data['message'] ?? 'Gagal memperbarui info grup'};
+      }
+    } catch (e) {
+      return {'success': false, 'message': 'Connection error: $e'};
+    }
+  }
+
+  static Future<Map<String, dynamic>> uploadGroupProfilePic(String groupId, String filePath) async {
+    try {
+      final headers = await getAuthHeaders();
+      var request = http.MultipartRequest('POST', Uri.parse('$baseUrl/chat/groups/$groupId/profile-pic'));
+      request.headers.addAll(headers);
+      request.files.add(await http.MultipartFile.fromPath('file', filePath));
+
+      var response = await request.send();
+      var responseData = await response.stream.bytesToString();
+      var data = jsonDecode(responseData);
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return {'success': true, 'profilePic': data['profile_pic'] ?? data['profilePic'] ?? data['url']};
+      } else {
+        return {'success': false, 'message': data['message'] ?? 'Gagal mengunggah foto grup'};
+      }
+    } catch (e) {
+      return {'success': false, 'message': 'Connection error: $e'};
+    }
+  }
+
+  static Future<Map<String, dynamic>> addGroupMembers(String groupId, List<int> userIds) async {
+    try {
+      final headers = await getAuthHeaders();
+      final response = await http.post(
+        Uri.parse('$baseUrl/chat/groups/$groupId/members'),
+        headers: headers,
+        body: jsonEncode({'userIds': userIds}),
+      );
+
+      final data = jsonDecode(response.body);
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return {'success': true, 'message': data['message']};
+      } else {
+        return {'success': false, 'message': data['message'] ?? 'Gagal menambahkan anggota'};
+      }
+    } catch (e) {
+      return {'success': false, 'message': 'Connection error: $e'};
+    }
+  }
+
+  static Future<Map<String, dynamic>> updateGroupMemberRole(
+    String groupId, 
+    dynamic memberId, {
+    required String role,
+  }) async {
+    try {
+      final headers = await getAuthHeaders();
+      final response = await http.patch(
+        Uri.parse('$baseUrl/chat/groups/$groupId/members/$memberId'),
+        headers: headers,
+        body: jsonEncode({
+          'role': role,
+          'is_admin': role == 'admin',
+        }),
+      );
+
+      final data = jsonDecode(response.body);
+      if (response.statusCode == 200) {
+        return {'success': true, 'message': data['message']};
+      } else {
+        return {'success': false, 'message': data['message'] ?? 'Gagal mengubah role anggota'};
+      }
+    } catch (e) {
+      return {'success': false, 'message': 'Connection error: $e'};
+    }
+  }
+
+  static Future<Map<String, dynamic>> removeGroupMember(String groupId, dynamic memberId) async {
+    try {
+      final headers = await getAuthHeaders();
+      final response = await http.delete(
+        Uri.parse('$baseUrl/chat/groups/$groupId/members/$memberId'),
+        headers: headers,
+      );
+
+      final data = jsonDecode(response.body);
+      if (response.statusCode == 200) {
+        return {'success': true, 'message': data['message']};
+      } else {
+        return {'success': false, 'message': data['message'] ?? 'Gagal mengeluarkan anggota'};
+      }
+    } catch (e) {
+      return {'success': false, 'message': 'Connection error: $e'};
+    }
+  }
+
+  // --- GROUP POLL / VOTING API ---
+
+  static Future<Map<String, dynamic>> createGroupPoll(
+    String groupId, {
+    required String question,
+    required List<String> options,
+    bool multipleAnswers = false,
+  }) async {
+    try {
+      final headers = await getAuthHeaders();
+      final response = await http.post(
+        Uri.parse('$baseUrl/chat/groups/$groupId/polls'),
+        headers: headers,
+        body: jsonEncode({
+          'question': question,
+          'options': options,
+          'multiple_answers': multipleAnswers,
+        }),
+      );
+
+      final data = jsonDecode(response.body);
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return {'success': true, 'data': data};
+      } else {
+        return {'success': false, 'message': data['message'] ?? 'Gagal membuat polling'};
+      }
+    } catch (e) {
+      return {'success': false, 'message': 'Connection error: $e'};
+    }
+  }
+
+  static Future<Map<String, dynamic>> voteGroupPoll(
+    String groupId, 
+    dynamic pollId, {
+    required int optionId,
+  }) async {
+    try {
+      final headers = await getAuthHeaders();
+      final response = await http.post(
+        Uri.parse('$baseUrl/chat/groups/$groupId/polls/$pollId/vote'),
+        headers: headers,
+        body: jsonEncode({
+          'option_id': optionId,
+        }),
+      );
+
+      final data = jsonDecode(response.body);
+      if (response.statusCode == 200) {
+        return {'success': true, 'data': data['poll'], 'message': data['message']};
+      } else {
+        return {'success': false, 'message': data['message'] ?? 'Gagal memproses vote'};
+      }
+    } catch (e) {
+      return {'success': false, 'message': 'Connection error: $e'};
+    }
+  }
+
+  static Future<Map<String, dynamic>> getGroupPollDetails(
+    String groupId, 
+    dynamic pollId,
+  ) async {
+    try {
+      final headers = await getAuthHeaders();
+      final response = await http.get(
+        Uri.parse('$baseUrl/chat/groups/$groupId/polls/$pollId'),
+        headers: headers,
+      );
+
+      final data = jsonDecode(response.body);
+      if (response.statusCode == 200) {
+        return {'success': true, 'data': data['poll'] ?? data};
+      } else {
+        return {'success': false, 'message': data['message'] ?? 'Gagal mengambil detail suara'};
+      }
+    } catch (e) {
+      return {'success': false, 'message': 'Connection error: $e'};
+    }
+  }
+
+  // --- DELETE MESSAGE API (Delete for Me) ---
+  static Future<Map<String, dynamic>> deleteChatMessage(
+    String chatRoomId,
+    dynamic messageId, {
+    List<dynamic>? messageIds,
+  }) async {
+    try {
+      final headers = await getAuthHeaders();
+      headers['Content-Type'] = 'application/json';
+      final body = messageIds != null ? jsonEncode({'messageIds': messageIds}) : null;
+      final response = await http.delete(
+        Uri.parse('$baseUrl/chat/$chatRoomId/messages/$messageId'),
+        headers: headers,
+        body: body,
+      );
+
+      final data = jsonDecode(response.body);
+      if (response.statusCode == 200) {
+        return {'success': true, 'message': data['message'] ?? 'Pesan berhasil dihapus'};
+      } else {
+        return {'success': false, 'message': data['message'] ?? 'Gagal menghapus pesan'};
+      }
+    } catch (e) {
+      return {'success': false, 'message': 'Connection error: $e'};
+    }
+  }
+
+  static Future<Map<String, dynamic>> deleteGroupMessage(
+    String groupId,
+    dynamic messageId, {
+    List<dynamic>? messageIds,
+  }) async {
+    try {
+      final headers = await getAuthHeaders();
+      headers['Content-Type'] = 'application/json';
+      final cleanId = groupId.replaceFirst('group_', '');
+      final body = messageIds != null ? jsonEncode({'messageIds': messageIds}) : null;
+      final response = await http.delete(
+        Uri.parse('$baseUrl/chat/groups/$cleanId/messages/$messageId'),
+        headers: headers,
+        body: body,
+      );
+
+      final data = jsonDecode(response.body);
+      if (response.statusCode == 200) {
+        return {'success': true, 'message': data['message'] ?? 'Pesan berhasil dihapus'};
+      } else {
+        return {'success': false, 'message': data['message'] ?? 'Gagal menghapus pesan'};
+      }
+    } catch (e) {
+      return {'success': false, 'message': 'Connection error: $e'};
+    }
+  }
+
+  // --- RECALL MESSAGE API (Tarik Pesan / Delete for Everyone) ---
+  static Future<Map<String, dynamic>> recallChatMessage(
+    String chatRoomId,
+    dynamic messageId,
+  ) async {
+    try {
+      final headers = await getAuthHeaders();
+      headers['Content-Type'] = 'application/json';
+      final response = await http.post(
+        Uri.parse('$baseUrl/chat/$chatRoomId/messages/$messageId/recall'),
+        headers: headers,
+      );
+
+      final data = jsonDecode(response.body);
+      if (response.statusCode == 200) {
+        return {'success': true, 'message': data['message'] ?? 'Pesan berhasil ditarik'};
+      } else {
+        return {'success': false, 'message': data['message'] ?? 'Gagal menarik pesan'};
+      }
+    } catch (e) {
+      return {'success': false, 'message': 'Connection error: $e'};
+    }
+  }
+
+  static Future<Map<String, dynamic>> recallGroupMessage(
+    String groupId,
+    dynamic messageId,
+  ) async {
+    try {
+      final headers = await getAuthHeaders();
+      headers['Content-Type'] = 'application/json';
+      final cleanId = groupId.replaceFirst('group_', '');
+      final response = await http.post(
+        Uri.parse('$baseUrl/chat/groups/$cleanId/messages/$messageId/recall'),
+        headers: headers,
+      );
+
+      final data = jsonDecode(response.body);
+      if (response.statusCode == 200) {
+        return {'success': true, 'message': data['message'] ?? 'Pesan berhasil ditarik'};
+      } else {
+        return {'success': false, 'message': data['message'] ?? 'Gagal menarik pesan'};
       }
     } catch (e) {
       return {'success': false, 'message': 'Connection error: $e'};
@@ -418,14 +889,22 @@ class ApiService {
     }
   }
 
-  static Future<Map<String, dynamic>> startCall(String phone, {String callType = 'audio', String? groupId}) async {
+  static Future<Map<String, dynamic>> startCall(
+    String? phone, {
+    List<String>? phones,
+    String callType = 'audio',
+    String? groupId,
+  }) async {
     try {
       final headers = await getAuthHeaders();
       final body = <String, dynamic>{'callType': callType};
+      if (phones != null && phones.isNotEmpty) {
+        body['phones'] = phones;
+      } else if (phone != null && phone.isNotEmpty) {
+        body['phone'] = phone;
+      }
       if (groupId != null && groupId.isNotEmpty) {
         body['groupId'] = groupId;
-      } else {
-        body['phone'] = phone;
       }
       final response = await http.post(
         Uri.parse('$baseUrl/calls/start'),
@@ -443,13 +922,24 @@ class ApiService {
     }
   }
 
-  static Future<Map<String, dynamic>> inviteToCall(String callId, String phone) async {
+  static Future<Map<String, dynamic>> inviteToCall(
+    String callId,
+    dynamic phoneOrPhones,
+  ) async {
     try {
       final headers = await getAuthHeaders();
+      final body = <String, dynamic>{};
+      if (phoneOrPhones is List<String>) {
+        body['phones'] = phoneOrPhones;
+      } else if (phoneOrPhones is List) {
+        body['phones'] = phoneOrPhones.map((e) => e.toString()).toList();
+      } else if (phoneOrPhones is String) {
+        body['phone'] = phoneOrPhones;
+      }
       final response = await http.post(
         Uri.parse('$baseUrl/calls/$callId/invite'),
         headers: headers,
-        body: jsonEncode({'phone': phone}),
+        body: jsonEncode(body),
       );
       if (response.statusCode == 200) {
         return {'success': true, 'data': jsonDecode(response.body)};

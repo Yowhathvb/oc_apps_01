@@ -7,7 +7,8 @@ import '../services/database_helper.dart';
 import 'chat_screen.dart';
 import 'add_contact_screen.dart';
 import 'create_group_screen.dart';
-import 'select_contact_screen.dart';
+import 'contact_info_screen.dart';
+import '../services/call_manager.dart';
 
 class ChatListScreen extends StatefulWidget {
   const ChatListScreen({super.key});
@@ -47,10 +48,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
     final userId = prefs.getString('user_id');
     if (userId == null) return;
 
-    final uri = Uri.parse(ApiService.baseUrl);
-    final socketUrl = '${uri.scheme}://${uri.host}:4000';
-
-    _socket = io.io(socketUrl, <String, dynamic>{
+    _socket = io.io(ApiService.chatSocketUrl, <String, dynamic>{
       'transports': ['websocket'],
       'autoConnect': false,
       'forceNew': true,
@@ -63,7 +61,29 @@ class _ChatListScreenState extends State<ChatListScreen> {
     });
 
     _socket!.on('rooms:update', (data) {
+      if (data is Map && data['roomId'] != null) {
+        final roomId = data['roomId'].toString();
+        final senderId = data['senderId']?.toString();
+        // HANYA tandai delivered jika pesan dikirim oleh lawan bicara (bukan oleh diri sendiri)
+        if (senderId != null && _myUserId != null && senderId != _myUserId) {
+          ApiService.markMessagesAsDelivered(roomId);
+          if (_socket != null && _socket!.connected) {
+            _socket!.emit('message:delivered', {
+              'roomId': roomId,
+              'userId': _myUserId,
+            });
+          }
+        }
+      }
       // Refresh list chat saat ada pesan baru masuk ke salah satu room kita
+      _fetchData(isPolling: true);
+    });
+
+    _socket!.on('messages:delivered', (_) {
+      _fetchData(isPolling: true);
+    });
+
+    _socket!.on('messages:read', (_) {
       _fetchData(isPolling: true);
     });
   }
@@ -111,6 +131,24 @@ class _ChatListScreenState extends State<ChatListScreen> {
 
       // Process API rooms first
       for (var room in apiRooms) {
+        final roomId = room['id']?.toString();
+        final lastSender = room['last_message_sender_id']?.toString();
+        final isDelivered = room['last_message_is_delivered'];
+        final unreadCount = room['unread_count'] ?? 0;
+
+        // Jika ada pesan dari lawan bicara yang belum delivered, tandai sebagai delivered
+        if (roomId != null && _myUserId != null && lastSender != null && lastSender != _myUserId) {
+          if (isDelivered == 0 || isDelivered == false || isDelivered == null || unreadCount > 0) {
+            ApiService.markMessagesAsDelivered(roomId);
+            if (_socket != null && _socket!.connected) {
+              _socket!.emit('message:delivered', {
+                'roomId': roomId,
+                'userId': _myUserId,
+              });
+            }
+          }
+        }
+
         final phone = _normalizePhone(room['other_user_phone']?.toString());
         processedPhones.add(phone);
 
@@ -132,11 +170,17 @@ class _ChatListScreenState extends State<ChatListScreen> {
           isSaved = true;
         }
 
+        final isRead = room['last_message_is_read'] == 1 || room['last_message_is_read'] == true || room['last_message_read'] == true;
+
         combinedList.add({
           'phone': phone,
           'display_name': displayName,
           'last_message': room['last_message'] ?? 'Belum ada pesan',
           'last_message_time': room['last_message_time'],
+          'last_message_sender_id': lastSender,
+          'last_message_is_delivered': isDelivered,
+          'last_message_is_read': isRead,
+          'unread_count': unreadCount,
           'room_id': room['id'].toString(),
           'is_saved': isSaved,
           'is_group': room['isGroup'] == true || room['is_group'] == true || room['type'] == 'group',
@@ -157,6 +201,10 @@ class _ChatListScreenState extends State<ChatListScreen> {
             'display_name': savedName,
             'last_message': isRegistered ? 'Belum ada pesan' : 'Kontak ini belum terdaftar',
             'last_message_time': null,
+            'last_message_sender_id': null,
+            'last_message_is_delivered': null,
+            'last_message_is_read': false,
+            'unread_count': 0,
             'room_id': null,
             'is_saved': true,
             'is_group': false,
@@ -229,54 +277,42 @@ class _ChatListScreenState extends State<ChatListScreen> {
     }
   }
 
+  Widget _buildLastMessageStatusIcon(Map<String, dynamic> item) {
+    final isRead = item['last_message_is_read'] == true || item['last_message_is_read'] == 1;
+    final isDelivered = item['last_message_is_delivered'] == 1 || item['last_message_is_delivered'] == true || isRead;
+
+    if (isRead) {
+      return const Icon(Icons.done_all, size: 14, color: Colors.blue);
+    } else if (isDelivered) {
+      return const Icon(Icons.done_all, size: 14, color: Colors.grey);
+    } else {
+      return const Icon(Icons.done, size: 14, color: Colors.grey);
+    }
+  }
+
   Future<void> _handleChatTap(Map<String, dynamic> item) async {
     if (item['room_id'] != null) {
       // Room already exists, open directly
       _navigateToChat(item['room_id'], item['display_name'], item['phone'], item['is_group'] ?? false, item['profile_pic']);
     } else {
-      // Room doesn't exist yet, need to create via API
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => const Center(child: CircularProgressIndicator()),
-      );
-
-      final phone = item['phone'];
-
-      // 1. Find user ID by phone
-      final findResult = await ApiService.findUserByPhone(phone);
-      if (!findResult['success']) {
-        if (mounted) {
-          Navigator.pop(context); // Close loading
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Gagal: ${findResult['message']}')),
-          );
-        }
-        return;
+      // Room belum aktif di server, buka langsung dengan local_room_id pre-generated
+      final phone = item['phone']?.toString() ?? '';
+      String? localRoomId = item['local_room_id']?.toString();
+      if (localRoomId == null || localRoomId.isEmpty) {
+        localRoomId = await DatabaseHelper().getLocalRoomId(phone);
       }
-
-      final targetUserId = findResult['data']['id'].toString();
-
-      // 2. Create or Get Room
-      final createResult = await ApiService.createOrGetRoom(
-        _myUserId!,
-        targetUserId,
-      );
-      if (mounted) Navigator.pop(context); // Close loading
-
-      if (createResult['success']) {
-        final newRoomId = createResult['chatRoomId'].toString();
-        _navigateToChat(newRoomId, item['display_name'], item['phone']);
-
-        // Refresh list after returning to get updated room_id
-        _fetchData();
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text(createResult['message'])));
-        }
+      if (localRoomId == null || localRoomId.isEmpty) {
+        final prefs = await SharedPreferences.getInstance();
+        final myUsername = prefs.getString('username') ?? _myUserId ?? 'user';
+        localRoomId = DatabaseHelper.generateUniqueRoomId(myUsername);
+        await DatabaseHelper().saveContact(
+          phone,
+          item['display_name'] ?? phone,
+          isRegistered: true,
+          localRoomId: localRoomId,
+        );
       }
+      _navigateToChat(localRoomId, item['display_name'] ?? phone, phone, false, item['profile_pic']);
     }
   }
 
@@ -298,7 +334,8 @@ class _ChatListScreenState extends State<ChatListScreen> {
   }
 
   void _showProfilePopup(BuildContext context, Map<String, dynamic> item) {
-    final heroTag = 'profile_pic_hero_${item['phone'] ?? item['room_id']}';
+    final isGroup = item['is_group'] == true;
+    final heroTag = 'profile_pic_hero_${isGroup ? 'group_${item['room_id']}' : (item['phone'] ?? item['room_id'])}';
     
     Navigator.of(context).push(
       PageRouteBuilder(
@@ -327,7 +364,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
                         width: 320,
                         decoration: BoxDecoration(
                           color: Colors.white,
-                          borderRadius: BorderRadius.circular(28),
+                          borderRadius: BorderRadius.circular(15),
                           boxShadow: [
                             BoxShadow(
                               color: Colors.black.withOpacity(0.15),
@@ -347,7 +384,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
                                 _showFullImageDialog(context, item, heroTag);
                               },
                               child: ClipRRect(
-                                borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+                                borderRadius: const BorderRadius.vertical(top: Radius.circular(15)),
                               child: Hero(
                                 tag: heroTag,
                                 child: Container(
@@ -356,7 +393,9 @@ class _ChatListScreenState extends State<ChatListScreen> {
                                   decoration: BoxDecoration(
                                     color: (item['profile_pic'] != null && item['profile_pic'].toString().isNotEmpty) 
                                         ? Colors.white 
-                                        : (item['is_saved'] == true ? Colors.green.shade100 : Colors.blue.shade100),
+                                        : isGroup
+                                            ? Colors.orange.shade100
+                                            : (item['is_saved'] == true ? Colors.green.shade100 : Colors.blue.shade100),
                                     image: (item['profile_pic'] != null && item['profile_pic'].toString().isNotEmpty)
                                         ? DecorationImage(
                                             image: NetworkImage(ApiService.getServerUrl(item['profile_pic'])),
@@ -366,18 +405,20 @@ class _ChatListScreenState extends State<ChatListScreen> {
                                   ),
                                   child: (item['profile_pic'] == null || item['profile_pic'].toString().isEmpty)
                                       ? Center(
-                                          child: Text(
-                                            (item['display_name'] ?? '?').isNotEmpty 
-                                                ? item['display_name'].substring(0, 1).toUpperCase() 
-                                                : '?',
-                                            style: TextStyle(
-                                              fontSize: 100,
-                                              color: item['is_saved'] == true
-                                                  ? Colors.green.shade800
-                                                  : const Color(0xFF0F3460),
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
+                                          child: isGroup
+                                              ? Icon(Icons.group_rounded, size: 90, color: Colors.orange.shade800)
+                                              : Text(
+                                                  (item['display_name'] ?? '?').isNotEmpty 
+                                                      ? item['display_name'].substring(0, 1).toUpperCase() 
+                                                      : '?',
+                                                  style: TextStyle(
+                                                    fontSize: 100,
+                                                    color: item['is_saved'] == true
+                                                        ? Colors.green.shade800
+                                                        : const Color(0xFF0F3460),
+                                                    fontWeight: FontWeight.bold,
+                                                  ),
+                                                ),
                                         )
                                       : null,
                                   ),
@@ -390,7 +431,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
                               child: Column(
                                 children: [
                                   Text(
-                                    item['display_name'] ?? 'Unknown',
+                                    item['display_name'] ?? (isGroup ? 'Grup' : 'Unknown'),
                                     style: const TextStyle(
                                       fontSize: 24,
                                       fontWeight: FontWeight.bold,
@@ -400,11 +441,11 @@ class _ChatListScreenState extends State<ChatListScreen> {
                                   ),
                                   const SizedBox(height: 6),
                                   Text(
-                                    item['phone'] ?? '',
+                                    isGroup ? 'Grup' : (item['phone'] ?? ''),
                                     style: TextStyle(
-                                      fontSize: 15,
-                                      color: Colors.grey.shade600,
-                                      fontWeight: FontWeight.w500,
+                                      fontSize: isGroup ? 14 : 15,
+                                      color: isGroup ? Colors.orange.shade800 : Colors.grey.shade600,
+                                      fontWeight: isGroup ? FontWeight.w600 : FontWeight.w500,
                                     ),
                                   ),
                                 ],
@@ -431,7 +472,15 @@ class _ChatListScreenState extends State<ChatListScreen> {
                                     color: Colors.green,
                                     onTap: () {
                                       Navigator.pop(context);
-                                      // TODO: Implement Voice Call if needed
+                                      final phone = item['phone']?.toString() ?? '';
+                                      final name = item['display_name']?.toString() ?? (isGroup ? 'Grup' : phone);
+                                      final roomId = item['room_id']?.toString();
+                                      CallManager.instance.startCall(
+                                        phone,
+                                        name,
+                                        false,
+                                        groupId: isGroup ? roomId : null,
+                                      );
                                     },
                                   ),
                                   _buildActionButton(
@@ -440,7 +489,15 @@ class _ChatListScreenState extends State<ChatListScreen> {
                                     color: Colors.teal,
                                     onTap: () {
                                       Navigator.pop(context);
-                                      // TODO: Implement Video Call if needed
+                                      final phone = item['phone']?.toString() ?? '';
+                                      final name = item['display_name']?.toString() ?? (isGroup ? 'Grup' : phone);
+                                      final roomId = item['room_id']?.toString();
+                                      CallManager.instance.startCall(
+                                        phone,
+                                        name,
+                                        true,
+                                        groupId: isGroup ? roomId : null,
+                                      );
                                     },
                                   ),
                                   _buildActionButton(
@@ -449,6 +506,39 @@ class _ChatListScreenState extends State<ChatListScreen> {
                                     color: Colors.grey.shade700,
                                     onTap: () {
                                       Navigator.pop(context);
+                                      Navigator.push(
+                                        context,
+                                        PageRouteBuilder(
+                                          transitionDuration: const Duration(milliseconds: 320),
+                                          reverseTransitionDuration: const Duration(milliseconds: 280),
+                                          pageBuilder: (context, animation, secondaryAnimation) => ContactInfoScreen(
+                                            phone: item['phone']?.toString() ?? '',
+                                            displayName: item['display_name'],
+                                            profilePic: item['profile_pic'],
+                                            roomId: item['room_id']?.toString(),
+                                            isGroup: item['is_group'] == true,
+                                          ),
+                                          transitionsBuilder: (context, animation, secondaryAnimation, child) {
+                                            final curved = CurvedAnimation(
+                                              parent: animation,
+                                              curve: Curves.easeOutCubic,
+                                              reverseCurve: Curves.easeInCubic,
+                                            );
+                                            return SlideTransition(
+                                              position: Tween<Offset>(
+                                                begin: const Offset(1.0, 0.0),
+                                                end: Offset.zero,
+                                              ).animate(curved),
+                                              child: FadeTransition(
+                                                opacity: Tween<double>(begin: 0.0, end: 1.0).animate(curved),
+                                                child: child,
+                                              ),
+                                            );
+                                          },
+                                        ),
+                                      ).then((_) {
+                                        _fetchData();
+                                      });
                                     },
                                   ),
                                 ],
@@ -734,124 +824,189 @@ class _ChatListScreenState extends State<ChatListScreen> {
                     duration: const Duration(milliseconds: 300),
                     curve: Curves.easeInOut,
                     color: isSelected ? primaryColor.withOpacity(0.12) : Colors.transparent,
-                    child: ListTile(
-                      onLongPress: item['is_registered'] == false ? null : () {
-                        _toggleSelection(itemId);
-                      },
-                      leading: Stack(
-                        children: [
-                          GestureDetector(
-                            onTap: () {
-                              if (_selectedChats.isNotEmpty) {
-                                _toggleSelection(itemId);
-                                return;
-                              }
-                              if (item['is_group'] != true) {
-                                _showProfilePopup(context, item);
-                              }
-                            },
-                            child: Hero(
-                              tag: 'profile_pic_hero_${item['phone'] ?? item['room_id'] ?? index}',
-                              child: CircleAvatar(
-                                backgroundColor: item['is_group'] == true 
-                                    ? Colors.orange.shade100
-                                    : item['is_saved']
-                                        ? Colors.green.shade100
-                                        : Colors.blue.shade100,
-                                backgroundImage: (item['profile_pic'] != null && item['profile_pic'].toString().isNotEmpty) 
-                                    ? NetworkImage(ApiService.getServerUrl(item['profile_pic'])) 
-                                    : null,
-                                child: (item['profile_pic'] != null && item['profile_pic'].toString().isNotEmpty) 
-                                    ? null 
-                                    : item['is_group'] == true
-                                        ? Icon(Icons.group, color: Colors.orange.shade800)
-                                        : Text(
-                                            (item['display_name'] ?? '?').isNotEmpty 
-                                                ? item['display_name'].substring(0, 1).toUpperCase() 
-                                                : '?',
-                                            style: TextStyle(
-                                              color: item['is_saved']
-                                                  ? Colors.green.shade800
-                                                  : primaryColor,
+                    child: Material(
+                      color: Colors.transparent,
+                      child: Theme(
+                        data: Theme.of(context).copyWith(
+                          splashColor: const Color(0xFF0F3460).withOpacity(0.15),
+                          highlightColor: Colors.black.withOpacity(0.08),
+                        ),
+                        child: ListTile(
+                          splashColor: const Color(0xFF0F3460).withOpacity(0.15),
+                          focusColor: Colors.black.withOpacity(0.06),
+                          hoverColor: Colors.black.withOpacity(0.04),
+                          onLongPress: item['is_registered'] == false ? null : () {
+                            _toggleSelection(itemId);
+                          },
+                          leading: Stack(
+                            children: [
+                              GestureDetector(
+                                onTap: () {
+                                  if (_selectedChats.isNotEmpty) {
+                                    _toggleSelection(itemId);
+                                    return;
+                                  }
+                                  _showProfilePopup(context, item);
+                                },
+                                child: Hero(
+                                  tag: 'profile_pic_hero_${item['is_group'] == true ? 'group_${item['room_id']}' : (item['phone'] ?? item['room_id'])}',
+                                  child: CircleAvatar(
+                                    backgroundColor: item['is_group'] == true 
+                                        ? Colors.orange.shade100
+                                        : item['is_saved']
+                                            ? Colors.green.shade100
+                                            : Colors.blue.shade100,
+                                    backgroundImage: (item['profile_pic'] != null && item['profile_pic'].toString().isNotEmpty) 
+                                        ? NetworkImage(ApiService.getServerUrl(item['profile_pic'])) 
+                                        : null,
+                                    child: (item['profile_pic'] != null && item['profile_pic'].toString().isNotEmpty) 
+                                        ? null 
+                                        : item['is_group'] == true
+                                            ? Icon(Icons.group, color: Colors.orange.shade800)
+                                            : Text(
+                                                (item['display_name'] ?? '?').isNotEmpty 
+                                                    ? item['display_name'].substring(0, 1).toUpperCase() 
+                                                    : '?',
+                                                style: TextStyle(
+                                                  color: item['is_saved']
+                                                      ? Colors.green.shade800
+                                                      : primaryColor,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                  ),
+                                ),
+                              ),
+                              Positioned(
+                                bottom: 0,
+                                right: 0,
+                                child: AnimatedScale(
+                                  scale: isSelected ? 1.0 : 0.0,
+                                  duration: const Duration(milliseconds: 250),
+                                  curve: Curves.elasticOut,
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      color: Colors.blueAccent,
+                                      shape: BoxShape.circle,
+                                      border: Border.all(color: Colors.white, width: 2),
+                                    ),
+                                    padding: const EdgeInsets.all(2),
+                                    child: const Icon(
+                                      Icons.check,
+                                      color: Colors.white,
+                                      size: 14,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          title: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  item['display_name'],
+                                  style: const TextStyle(fontWeight: FontWeight.bold),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              if (item['is_pinned'] == true)
+                                const Padding(
+                                  padding: EdgeInsets.only(left: 4),
+                                  child: Icon(Icons.push_pin, size: 14, color: Colors.grey),
+                                ),
+                            ],
+                          ),
+                          subtitle: Row(
+                            children: [
+                              if (item['last_message_sender_id'] != null &&
+                                  item['last_message_sender_id'].toString() == _myUserId &&
+                                  (item['last_message'] ?? '').toString().isNotEmpty &&
+                                  item['last_message'] != 'Belum ada pesan' &&
+                                  item['last_message'] != 'Kontak ini belum terdaftar' &&
+                                  item['last_message'] != 'Pesan ini telah ditarik') ...[
+                                _buildLastMessageStatusIcon(item),
+                                const SizedBox(width: 4),
+                              ],
+                              if (item['last_message'] == 'Pesan ini telah ditarik') ...[
+                                Icon(Icons.block_rounded, size: 13, color: Colors.grey.shade500),
+                                const SizedBox(width: 4),
+                              ],
+                              Expanded(
+                                child: Text(
+                                  item['last_message'] ?? '',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: (item['unread_count'] ?? 0) > 0 ? Colors.black87 : Colors.grey.shade600,
+                                    fontWeight: (item['unread_count'] ?? 0) > 0 ? FontWeight.w600 : FontWeight.normal,
+                                    fontStyle: item['last_message'] == 'Pesan ini telah ditarik' ? FontStyle.italic : FontStyle.normal,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          trailing: item['is_registered'] == false
+                              ? TextButton(
+                                  onPressed: () {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('Fitur undang belum tersedia')),
+                                    );
+                                  },
+                                  style: TextButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                    minimumSize: Size.zero,
+                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                  child: const Text('Undang', style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)),
+                                )
+                              : Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    Text(
+                                      timeStr,
+                                      style: TextStyle(
+                                        color: (item['unread_count'] ?? 0) > 0 ? const Color(0xFF0F3460) : Colors.grey,
+                                        fontSize: 12,
+                                        fontWeight: (item['unread_count'] ?? 0) > 0 ? FontWeight.bold : FontWeight.normal,
+                                      ),
+                                    ),
+                                    if ((item['unread_count'] ?? 0) > 0) ...[
+                                      const SizedBox(height: 4),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: Colors.green.shade600,
+                                          borderRadius: BorderRadius.circular(10),
+                                        ),
+                                        constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+                                        child: Center(
+                                          child: Text(
+                                            '${item['unread_count']}',
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 11,
                                               fontWeight: FontWeight.bold,
                                             ),
                                           ),
-                              ),
-                            ),
-                          ),
-                          Positioned(
-                            bottom: 0,
-                            right: 0,
-                            child: AnimatedScale(
-                              scale: isSelected ? 1.0 : 0.0,
-                              duration: const Duration(milliseconds: 250),
-                              curve: Curves.elasticOut,
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  color: Colors.blueAccent,
-                                  shape: BoxShape.circle,
-                                  border: Border.all(color: Colors.white, width: 2),
+                                        ),
+                                      ),
+                                    ],
+                                  ],
                                 ),
-                                padding: const EdgeInsets.all(2),
-                                child: const Icon(
-                                  Icons.check,
-                                  color: Colors.white,
-                                  size: 14,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
+                          onTap: item['is_registered'] == false 
+                              ? null 
+                              : () {
+                                  if (_selectedChats.isNotEmpty) {
+                                    _toggleSelection(itemId);
+                                  } else {
+                                    _handleChatTap(item);
+                                  }
+                                },
+                        ),
                       ),
-                      title: Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              item['display_name'],
-                              style: const TextStyle(fontWeight: FontWeight.bold),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          if (item['is_pinned'] == true)
-                            const Padding(
-                              padding: EdgeInsets.only(left: 4),
-                              child: Icon(Icons.push_pin, size: 14, color: Colors.grey),
-                            ),
-                        ],
-                      ),
-                      subtitle: Text(
-                        item['last_message'],
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      trailing: item['is_registered'] == false
-                          ? TextButton(
-                              onPressed: () {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text('Fitur undang belum tersedia')),
-                                );
-                              },
-                              style: TextButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                                minimumSize: Size.zero,
-                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              ),
-                              child: const Text('Undang', style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)),
-                            )
-                          : Text(
-                              timeStr,
-                              style: const TextStyle(color: Colors.grey, fontSize: 12),
-                            ),
-                      onTap: item['is_registered'] == false 
-                          ? null 
-                          : () {
-                              if (_selectedChats.isNotEmpty) {
-                                _toggleSelection(itemId);
-                              } else {
-                                _handleChatTap(item);
-                              }
-                            },
                     ),
                   );
                 },

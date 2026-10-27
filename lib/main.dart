@@ -37,6 +37,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
       ?.createNotificationChannel(channel);
 
   print("Background: channel ensured. Data: ${message.data}");
+  await NotificationService.handleIncomingMessageDelivery(message);
 }
 
 void main() async {

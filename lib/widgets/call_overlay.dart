@@ -19,6 +19,8 @@ class _CallOverlayState extends State<CallOverlay> {
   Map<String, String> _contactMap = {};
   List<Map<String, dynamic>> _contactList = [];
   bool _showParticipantList = false;
+  final Set<String> _selectedPhones = {};
+  bool _isInviting = false;
 
   @override
   void initState() {
@@ -375,7 +377,7 @@ class _CallOverlayState extends State<CallOverlay> {
     String statusText;
     switch (manager.state) {
       case CallState.calling:
-        statusText = 'Memanggil $name...';
+        statusText = manager.isIncoming ? 'Menghubungkan...' : 'Memanggil $name...';
         break;
       case CallState.ringing:
         statusText = 'Panggilan dari $name';
@@ -402,6 +404,25 @@ class _CallOverlayState extends State<CallOverlay> {
             style: const TextStyle(color: Colors.white, fontSize: 18),
             textAlign: TextAlign.center,
           ),
+          if (manager.currentGroupId != null) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.teal.withOpacity(0.25),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.tealAccent.shade400, width: 0.8),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.groups_rounded, size: 14, color: Colors.tealAccent),
+                  SizedBox(width: 4),
+                  Text('Panggilan Grup', style: TextStyle(color: Colors.tealAccent, fontSize: 12, fontWeight: FontWeight.bold)),
+                ],
+              ),
+            ),
+          ],
           if (manager.state == CallState.connected) ...[
             const SizedBox(height: 10),
             Text(
@@ -598,9 +619,7 @@ class _CallOverlayState extends State<CallOverlay> {
         ),
       ],
     );
-  }
-
-  Widget _buildParticipantListPanel(CallManager manager) {
+  }  Widget _buildParticipantListPanel(CallManager manager) {
     final alreadyInCall = <String>{};
     
     // Add current user and the primary callee
@@ -619,7 +638,7 @@ class _CallOverlayState extends State<CallOverlay> {
       left: 0,
       right: 0,
       bottom: 0,
-      height: MediaQuery.of(context).size.height * 0.65,
+      height: MediaQuery.of(context).size.height * 0.70,
       child: Container(
         decoration: BoxDecoration(
           color: Colors.grey.shade900,
@@ -642,16 +661,39 @@ class _CallOverlayState extends State<CallOverlay> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 10, horizontal: 16),
-                  child: Text(
-                    'Tambah Peserta',
-                    style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+                  child: Row(
+                    children: [
+                      const Text(
+                        'Tambah Peserta',
+                        style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
+                      if (_selectedPhones.isNotEmpty) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.blueAccent,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            '${_selectedPhones.length}',
+                            style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
                 IconButton(
                   icon: const Icon(Icons.close, color: Colors.white54),
-                  onPressed: () => setState(() => _showParticipantList = false),
+                  onPressed: () {
+                    setState(() {
+                      _showParticipantList = false;
+                      _selectedPhones.clear();
+                    });
+                  },
                 ),
               ],
             ),
@@ -672,16 +714,45 @@ class _CallOverlayState extends State<CallOverlay> {
                     final name = c['saved_name'] as String? ?? phone;
                     final normalizedPhone = _normalizePhone(phone);
                     final isAlreadyIn = alreadyInCall.contains(normalizedPhone);
+                    final isSelected = _selectedPhones.contains(normalizedPhone);
 
                     return ListTile(
-                      leading: CircleAvatar(
-                        backgroundColor: Colors.blueGrey.shade700,
-                        child: Text(
-                          name.isNotEmpty ? name[0].toUpperCase() : '?',
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                      onTap: isAlreadyIn
+                          ? null
+                          : () {
+                              setState(() {
+                                if (isSelected) {
+                                  _selectedPhones.remove(normalizedPhone);
+                                } else {
+                                  _selectedPhones.add(normalizedPhone);
+                                }
+                              });
+                            },
+                      leading: Stack(
+                        alignment: Alignment.bottomRight,
+                        children: [
+                          CircleAvatar(
+                            backgroundColor: isSelected ? Colors.blueAccent : Colors.blueGrey.shade700,
+                            child: Text(
+                              name.isNotEmpty ? name[0].toUpperCase() : '?',
+                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                          if (isSelected)
+                            const CircleAvatar(
+                              radius: 8,
+                              backgroundColor: Colors.blueAccent,
+                              child: Icon(Icons.check, size: 12, color: Colors.white),
+                            ),
+                        ],
+                      ),
+                      title: Text(
+                        name,
+                        style: TextStyle(
+                          color: isSelected ? Colors.blueAccent : Colors.white,
+                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                         ),
                       ),
-                      title: Text(name, style: const TextStyle(color: Colors.white)),
                       subtitle: Text(phone, style: TextStyle(color: Colors.grey.shade400, fontSize: 12)),
                       trailing: isAlreadyIn
                           ? Container(
@@ -696,34 +767,105 @@ class _CallOverlayState extends State<CallOverlay> {
                                 style: TextStyle(color: Colors.greenAccent, fontSize: 11),
                               ),
                             )
-                          : ElevatedButton.icon(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.blueAccent,
-                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                minimumSize: Size.zero,
-                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              ),
-                              icon: const Icon(Icons.call, size: 14),
-                              label: const Text('Panggil', style: TextStyle(fontSize: 12)),
-                              onPressed: () async {
-                                setState(() => _showParticipantList = false);
-                                final result = await manager.inviteParticipant(phone);
-                                if (navigatorKey.currentContext != null && navigatorKey.currentContext!.mounted) {
-                                  ScaffoldMessenger.of(navigatorKey.currentContext!).showSnackBar(
-                                    SnackBar(
-                                      content: Text(result['success'] == true
-                                          ? '\$name sedang dipanggil...'
-                                          : result['message'] ?? 'Gagal memanggil \$name'),
-                                      backgroundColor: result['success'] == true
-                                          ? Colors.green.shade700
-                                          : Colors.red.shade700,
-                                    ),
-                                  );
-                                }
-                              },
+                          : Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Checkbox(
+                                  value: isSelected,
+                                  activeColor: Colors.blueAccent,
+                                  checkColor: Colors.white,
+                                  onChanged: (val) {
+                                    setState(() {
+                                      if (val == true) {
+                                        _selectedPhones.add(normalizedPhone);
+                                      } else {
+                                        _selectedPhones.remove(normalizedPhone);
+                                      }
+                                    });
+                                  },
+                                ),
+                                ElevatedButton(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.blueAccent,
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                    minimumSize: Size.zero,
+                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                  onPressed: () async {
+                                    final result = await manager.inviteParticipant(phone);
+                                    if (navigatorKey.currentContext != null && navigatorKey.currentContext!.mounted) {
+                                      ScaffoldMessenger.of(navigatorKey.currentContext!).showSnackBar(
+                                        SnackBar(
+                                          content: Text(result['success'] == true
+                                              ? '$name sedang dipanggil...'
+                                              : result['message'] ?? 'Gagal memanggil $name'),
+                                          backgroundColor: result['success'] == true
+                                              ? Colors.green.shade700
+                                              : Colors.red.shade700,
+                                        ),
+                                      );
+                                    }
+                                  },
+                                  child: const Text('Panggil', style: TextStyle(fontSize: 12, color: Colors.white)),
+                                ),
+                              ],
                             ),
                     );
                   },
+                ),
+              ),
+            if (_selectedPhones.isNotEmpty)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: const BoxDecoration(
+                  color: Color(0xFF1E1E1E),
+                  border: Border(top: BorderSide(color: Colors.white12)),
+                ),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green.shade600,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    icon: _isInviting
+                        ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                        : const Icon(Icons.group_add_rounded, size: 20),
+                    label: Text(
+                      _isInviting
+                          ? 'Mengundang...'
+                          : 'Undang ${_selectedPhones.length} Kontak Sekaligus',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                    ),
+                    onPressed: _isInviting
+                        ? null
+                        : () async {
+                            setState(() => _isInviting = true);
+                            final phonesToInvite = _selectedPhones.toList();
+                            final result = await manager.inviteParticipants(phonesToInvite);
+                            if (mounted) {
+                              setState(() {
+                                _isInviting = false;
+                                _selectedPhones.clear();
+                                _showParticipantList = false;
+                              });
+                            }
+                            if (navigatorKey.currentContext != null && navigatorKey.currentContext!.mounted) {
+                              ScaffoldMessenger.of(navigatorKey.currentContext!).showSnackBar(
+                                SnackBar(
+                                  content: Text(result['success'] == true
+                                      ? '${phonesToInvite.length} kontak sedang dipanggil...'
+                                      : result['message'] ?? 'Gagal mengundang kontak'),
+                                  backgroundColor: result['success'] == true
+                                      ? Colors.green.shade700
+                                      : Colors.red.shade700,
+                                ),
+                              );
+                            }
+                          },
+                  ),
                 ),
               ),
           ],

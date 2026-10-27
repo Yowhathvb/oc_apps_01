@@ -15,41 +15,59 @@ class CallManager extends ChangeNotifier {
   static final CallManager _instance = CallManager._internal();
   static CallManager get instance => _instance;
 
-  CallManager._internal() {
-    _room = Room();
-    _listener = _room.createListener();
-    _listener.on<RoomDisconnectedEvent>((event) {
+  CallManager._internal();
+
+  Room? _room;
+  EventsListener<RoomEvent>? _listener;
+  io.Socket? _socket;
+
+  Room get room => _room ??= _createRoom();
+
+  Room _createRoom() {
+    _room?.disconnect();
+    _room?.dispose();
+    _listener?.dispose();
+
+    final r = Room(
+      roomOptions: const RoomOptions(
+        defaultAudioPublishOptions: AudioPublishOptions(
+          dtx: true,
+        ),
+      ),
+    );
+    _listener = r.createListener();
+    _listener!.on<RoomDisconnectedEvent>((event) {
       if (state == CallState.connected) {
         _endLocalCall();
       }
     });
 
-    _listener.on<ParticipantConnectedEvent>((event) {
+    _listener!.on<ParticipantConnectedEvent>((event) {
       if (state == CallState.connected && _durationTimer == null) {
         _startTimer();
       }
       notifyListeners();
     });
 
-    _listener.on<ParticipantDisconnectedEvent>((event) {
+    _listener!.on<ParticipantDisconnectedEvent>((event) {
       notifyListeners();
     });
 
-    _listener.on<TrackSubscribedEvent>((event) => notifyListeners());
-    _listener.on<TrackUnsubscribedEvent>((event) => notifyListeners());
-    _listener.on<TrackMutedEvent>((event) => notifyListeners());
-    _listener.on<TrackUnmutedEvent>((event) => notifyListeners());
-    _listener.on<LocalTrackPublishedEvent>((event) => notifyListeners());
-    _listener.on<LocalTrackUnpublishedEvent>((event) => notifyListeners());
+    _listener!.on<TrackSubscribedEvent>((event) => notifyListeners());
+    _listener!.on<TrackUnsubscribedEvent>((event) => notifyListeners());
+    _listener!.on<TrackMutedEvent>((event) => notifyListeners());
+    _listener!.on<TrackUnmutedEvent>((event) => notifyListeners());
+    _listener!.on<LocalTrackPublishedEvent>((event) => notifyListeners());
+    _listener!.on<LocalTrackUnpublishedEvent>((event) => notifyListeners());
 
+    _room = r;
+    return r;
   }
-
-  late final Room _room;
-  late final EventsListener<RoomEvent> _listener;
-  io.Socket? _socket;
 
   CallState state = CallState.idle;
   
+  bool isIncoming = false;
+  bool _isConnecting = false;
   bool isMinimized = false;
   bool isVideo = false;
   bool isMicMuted = false;
@@ -58,12 +76,12 @@ class CallManager extends ChangeNotifier {
   String? currentCallId;
   String? currentOtherUserName;
   String? currentOtherUserPhone;
+  String? currentGroupId;
 
   Timer? _durationTimer;
   Duration callDuration = Duration.zero;
 
   bool get isActive => state != CallState.idle;
-  Room get room => _room;
 
   // Initialize socket for incoming calls (called from main.dart)
   Future<void> initSocket() async {
@@ -81,7 +99,7 @@ class CallManager extends ChangeNotifier {
     _socket?.dispose();
 
     _socket = io.io(ApiService.callsSocketUrl, <String, dynamic>{
-      'transports': ['websocket', 'polling'],
+      'transports': ['websocket'],
       'autoConnect': false,
       'auth': {'token': token},
       'path': '/calls-socket/',
@@ -105,6 +123,7 @@ class CallManager extends ChangeNotifier {
       final callerPhone = callData['caller_phone'] ?? callData['callerPhone'] ?? 'Unknown Number';
       final callId = callData['id'].toString();
       final isVideoCall = callData['type'] == 'video';
+      final groupId = callData['group_id'] ?? callData['groupId'];
 
       final acceptedBy = (callData['accepted_by'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [];
       final rejectedBy = (callData['rejected_by'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [];
@@ -117,12 +136,12 @@ class CallManager extends ChangeNotifier {
           _fetchLiveKitTokenAndConnect();
         }
       } else if (!hasRejected) {
-        handleIncomingCall(callId, callerName, callerPhone, isVideoCall);
+        handleIncomingCall(callId, callerName, callerPhone, isVideoCall, groupId: groupId?.toString());
       }
     });
 
     _socket?.on('call:accepted', (data) {
-      if (state == CallState.calling) {
+      if (!isIncoming && state == CallState.calling) {
         _fetchLiveKitTokenAndConnect();
       }
     });
@@ -139,11 +158,19 @@ class CallManager extends ChangeNotifier {
   }
 
 
-  Future<void> handleIncomingCall(String callId, String callerName, String callerPhone, bool video) async {
+  Future<void> handleIncomingCall(
+    String callId,
+    String callerName,
+    String callerPhone,
+    bool video, {
+    String? groupId,
+  }) async {
     if (isActive) return;
+    isIncoming = true;
     currentCallId = callId;
     currentOtherUserName = callerName;
     currentOtherUserPhone = callerPhone;
+    currentGroupId = groupId;
     isVideo = video;
     isVideoMuted = !video;
     isMicMuted = false;
@@ -167,7 +194,13 @@ class CallManager extends ChangeNotifier {
   // ---------------------------------------------------------
   // PENELPON (CALLER)
   // ---------------------------------------------------------
-  Future<void> startCall(String phone, String otherName, bool video, {String? groupId}) async {
+  Future<void> startCall(
+    String? phone,
+    String otherName,
+    bool video, {
+    String? groupId,
+    List<String>? phones,
+  }) async {
     if (isActive) return;
     
     await Permission.microphone.request();
@@ -175,8 +208,12 @@ class CallManager extends ChangeNotifier {
       await Permission.camera.request();
     }
 
-    currentOtherUserPhone = phone;
+    isIncoming = false;
+    currentOtherUserPhone = (phones != null && phones.isNotEmpty)
+        ? phones.join(', ')
+        : (phone ?? '');
     currentOtherUserName = otherName;
+    currentGroupId = groupId;
     isVideo = video;
     isVideoMuted = !video;
     isMicMuted = false;
@@ -185,14 +222,21 @@ class CallManager extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final callResult = await ApiService.startCall(phone, callType: video ? 'video' : 'audio', groupId: groupId);
+      final callResult = await ApiService.startCall(
+        phone,
+        phones: phones,
+        callType: video ? 'video' : 'audio',
+        groupId: groupId,
+      );
       if (!callResult['success']) throw Exception(callResult['message']);
       
       currentCallId = callResult['data']['call']['id'].toString();
       
       // Save outgoing call to local history
       await DatabaseHelper().insertCallHistory(
-        otherPhone: phone,
+        otherPhone: (phones != null && phones.isNotEmpty)
+            ? phones.join(', ')
+            : (phone ?? (groupId != null ? 'Grup' : '')),
         otherName: otherName,
         direction: 'outgoing',
         status: 'calling',
@@ -249,22 +293,44 @@ class CallManager extends ChangeNotifier {
   }
 
   Future<void> _fetchLiveKitTokenAndConnect() async {
+    if (_isConnecting || state == CallState.connected) {
+      debugPrint('[CallManager] Already connecting or connected to LiveKit, ignoring duplicate call');
+      return;
+    }
+    _isConnecting = true;
     try {
       final res = await ApiService.getLiveKitToken(currentCallId!);
       if (!res['success']) throw Exception(res['message']);
       
       final String liveKitToken = res['data']['token'];
       final String liveKitUrl = res['data']['url'] ?? 'wss://oc-ch6qludh.livekit.cloud';
+      debugPrint('[CallManager] Connecting to LiveKit URL: $liveKitUrl');
       
-      await _room.connect(liveKitUrl, liveKitToken);
+      final currentRoom = _createRoom();
+      await currentRoom.connect(
+        liveKitUrl,
+        liveKitToken,
+        connectOptions: const ConnectOptions(
+          autoSubscribe: true,
+          rtcConfiguration: RTCConfiguration(
+            iceServers: [
+              RTCIceServer(urls: [
+                'stun:stun.l.google.com:19302',
+                'stun:stun1.l.google.com:19302',
+                'stun:stun2.l.google.com:19302',
+              ]),
+            ],
+          ),
+        ),
+      );
 
       if (isVideo) {
-        await _room.localParticipant?.setCameraEnabled(true);
+        await currentRoom.localParticipant?.setCameraEnabled(true);
       }
-      await _room.localParticipant?.setMicrophoneEnabled(true);
+      await currentRoom.localParticipant?.setMicrophoneEnabled(true);
 
       state = CallState.connected;
-      if (_room.remoteParticipants.isNotEmpty) {
+      if (currentRoom.remoteParticipants.isNotEmpty) {
         _startTimer();
       }
       notifyListeners();
@@ -276,6 +342,8 @@ class CallManager extends ChangeNotifier {
         );
       }
       _endLocalCall();
+    } finally {
+      _isConnecting = false;
     }
   }
 
@@ -285,15 +353,15 @@ class CallManager extends ChangeNotifier {
   }
 
   Future<void> toggleMic() async {
-    final enabled = _room.localParticipant?.isMicrophoneEnabled() ?? false;
-    await _room.localParticipant?.setMicrophoneEnabled(!enabled);
+    final enabled = _room?.localParticipant?.isMicrophoneEnabled() ?? false;
+    await _room?.localParticipant?.setMicrophoneEnabled(!enabled);
     isMicMuted = enabled;
     notifyListeners();
   }
 
   Future<void> toggleVideo() async {
-    final enabled = _room.localParticipant?.isCameraEnabled() ?? false;
-    await _room.localParticipant?.setCameraEnabled(!enabled);
+    final enabled = _room?.localParticipant?.isCameraEnabled() ?? false;
+    await _room?.localParticipant?.setCameraEnabled(!enabled);
     isVideoMuted = enabled;
     notifyListeners();
   }
@@ -303,6 +371,13 @@ class CallManager extends ChangeNotifier {
       return {'success': false, 'message': 'Tidak ada panggilan aktif'};
     }
     return await ApiService.inviteToCall(currentCallId!, phone);
+  }
+
+  Future<Map<String, dynamic>> inviteParticipants(List<String> phones) async {
+    if (currentCallId == null) {
+      return {'success': false, 'message': 'Tidak ada panggilan aktif'};
+    }
+    return await ApiService.inviteToCall(currentCallId!, phones);
   }
 
   Future<void> endCall() async {
@@ -330,12 +405,20 @@ class CallManager extends ChangeNotifier {
   void _endLocalCall() {
     _stopTimer();
     state = CallState.idle;
+    isIncoming = false;
+    _isConnecting = false;
     isMinimized = false;
     currentCallId = null;
     currentOtherUserName = null;
     currentOtherUserPhone = null;
+    currentGroupId = null;
     
-    _room.disconnect();
+    _room?.disconnect();
+    _room?.dispose();
+    _room = null;
+    _listener?.dispose();
+    _listener = null;
+
     FlutterCallkitIncoming.endAllCalls();
     notifyListeners();
   }

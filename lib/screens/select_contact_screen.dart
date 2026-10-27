@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../services/api_service.dart';
 import '../services/database_helper.dart';
 import 'chat_screen.dart';
 
@@ -31,57 +30,37 @@ class _SelectContactScreenState extends State<SelectContactScreen> {
   }
 
   Future<void> _startChat(Map<String, dynamic> contact) async {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => const Center(child: CircularProgressIndicator()),
-    );
+    final phone = contact['phone_number']?.toString() ?? '';
+    if (phone.isEmpty) return;
 
-    final phone = contact['phone_number'];
-    final findResult = await ApiService.findUserByPhone(phone);
-    
-    if (!findResult['success']) {
-      if (mounted) Navigator.pop(context);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Nomor ini belum terdaftar di aplikasi')),
-        );
-      }
-      return;
+    // Ambil atau siapkan local_room_id di database lokal
+    String? roomId = contact['local_room_id']?.toString();
+    if (roomId == null || roomId.isEmpty) {
+      roomId = await DatabaseHelper().getLocalRoomId(phone);
+    }
+    if (roomId == null || roomId.isEmpty) {
+      final prefs = await SharedPreferences.getInstance();
+      final myUsername = prefs.getString('username') ?? prefs.getString('user_id') ?? 'user';
+      roomId = DatabaseHelper.generateUniqueRoomId(myUsername);
+      await DatabaseHelper().saveContact(
+        phone,
+        contact['saved_name'] ?? phone,
+        isRegistered: contact['is_registered'] == 1,
+        localRoomId: roomId,
+      );
     }
 
-    final targetUserId = findResult['data']['id'].toString();
-    final profilePic = findResult['data']['profile_pic']; // if returned
-    final prefs = await SharedPreferences.getInstance();
-    final myUserId = prefs.getString('user_id');
-
-    if (myUserId == null) {
-      if (mounted) Navigator.pop(context);
-      return;
-    }
-
-    final createResult = await ApiService.createOrGetRoom(myUserId, targetUserId);
-    if (mounted) Navigator.pop(context);
-
-    if (createResult['success']) {
-      final roomId = createResult['chatRoomId'].toString();
+    if (mounted) {
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
           builder: (context) => ChatScreen(
-            roomId: roomId,
-            otherUserName: contact['saved_name'],
+            roomId: roomId!,
+            otherUserName: contact['saved_name'] ?? phone,
             otherUserPhone: phone,
-            profilePic: profilePic,
           ),
         ),
       );
-    } else {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(createResult['message'])),
-        );
-      }
     }
   }
 
@@ -132,13 +111,20 @@ class _SelectContactScreenState extends State<SelectContactScreen> {
                   itemCount: filteredContacts.length,
                   itemBuilder: (context, index) {
                     final contact = filteredContacts[index];
-                    return ListTile(
-                      leading: const CircleAvatar(
-                        child: Icon(Icons.person),
+                    return Theme(
+                      data: Theme.of(context).copyWith(
+                        splashColor: primaryColor.withOpacity(0.15),
+                        highlightColor: Colors.black.withOpacity(0.08),
                       ),
-                      title: Text(contact['saved_name']),
-                      subtitle: Text(contact['phone_number']),
-                      onTap: () => _startChat(contact),
+                      child: ListTile(
+                        splashColor: primaryColor.withOpacity(0.15),
+                        leading: const CircleAvatar(
+                          child: Icon(Icons.person),
+                        ),
+                        title: Text(contact['saved_name']),
+                        subtitle: Text(contact['phone_number']),
+                        onTap: () => _startChat(contact),
+                      ),
                     );
                   },
                 ),

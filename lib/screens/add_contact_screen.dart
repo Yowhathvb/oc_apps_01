@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/database_helper.dart';
 import '../services/api_service.dart';
-import 'chat_screen.dart';
 
 class AddContactScreen extends StatefulWidget {
   const AddContactScreen({super.key});
@@ -34,44 +33,21 @@ class _AddContactScreenState extends State<AddContactScreen> {
       final findResult = await ApiService.findUserByPhone(phone);
       final isRegistered = findResult['success'] == true;
 
-      // 2. Simpan kontak ke database lokal SQLite dengan flag is_registered
-      await DatabaseHelper().saveContact(phone, name, isRegistered: isRegistered);
+      // 2. Ambil username untuk formula hash unik: username + random + timestamp
+      final prefs = await SharedPreferences.getInstance();
+      final myUsername = prefs.getString('username') ?? prefs.getString('user_id') ?? 'user';
 
-      if (isRegistered) {
-        final targetUserId = findResult['data']['id'].toString();
-        
-        final prefs = await SharedPreferences.getInstance();
-        final myUserId = prefs.getString('user_id');
+      // 3. Generate ID room unik di lokal (SHA-256 hash)
+      final localRoomId = DatabaseHelper.generateUniqueRoomId(myUsername);
 
-        if (myUserId != null) {
-          final createResult = await ApiService.createOrGetRoom(myUserId, targetUserId);
-          
-          if (createResult['success']) {
-            final roomId = createResult['chatRoomId'].toString();
-            
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Kontak berhasil disimpan')),
-              );
-              
-              // Langsung loncat ke halaman chat!
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => ChatScreen(
-                    roomId: roomId,
-                    otherUserName: name,
-                    otherUserPhone: phone,
-                  ),
-                ),
-              );
-              return;
-            }
-          }
-        }
-      }
-      
-      // Jika nomor tidak terdaftar atau gagal membuat room, kita kembali dengan sukses (karena kontak sudah tersimpan lokal)
+      // 4. Simpan kontak ke database lokal SQLite dengan flag is_registered dan local_room_id
+      await DatabaseHelper().saveContact(
+        phone, 
+        name, 
+        isRegistered: isRegistered,
+        localRoomId: localRoomId,
+      );
+
       if (mounted) {
         if (!isRegistered) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -79,7 +55,7 @@ class _AddContactScreenState extends State<AddContactScreen> {
           );
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Kontak disimpan, tetapi gagal membuat obrolan')),
+            const SnackBar(content: Text('Kontak berhasil disimpan ke kontak lokal')),
           );
         }
         Navigator.pop(context, true); 

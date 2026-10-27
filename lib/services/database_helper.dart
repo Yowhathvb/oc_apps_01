@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:math';
+import 'package:crypto/crypto.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -26,7 +29,7 @@ class DatabaseHelper {
     final path = await _getDbPath();
     return await openDatabase(
       path,
-      version: 5, // Bumped version to 5 for pinned_chats
+      version: 6, // Bumped version to 6 for local_room_id
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -38,7 +41,8 @@ class DatabaseHelper {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         phone_number TEXT UNIQUE NOT NULL,
         saved_name TEXT NOT NULL,
-        is_registered INTEGER DEFAULT 0
+        is_registered INTEGER DEFAULT 0,
+        local_room_id TEXT
       )
     ''');
     await _createCallHistoryTable(db);
@@ -57,6 +61,9 @@ class DatabaseHelper {
     }
     if (oldVersion < 5) {
       await _createPinnedChatsTable(db);
+    }
+    if (oldVersion < 6) {
+      await db.execute('ALTER TABLE contacts ADD COLUMN local_room_id TEXT');
     }
   }
 
@@ -83,18 +90,53 @@ class DatabaseHelper {
     ''');
   }
 
-  // Insert or update a contact
-  Future<void> saveContact(String phoneNumber, String savedName, {bool isRegistered = false}) async {
+  /// Generate ID room unik di lokal dengan formula:
+  /// username + random alphanumeric + timestamp di-hash SHA-256 (12 karakter hex)
+  static String generateUniqueRoomId(String username) {
+    final cleanUsername = username.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '').toLowerCase();
+    final randomPart = Random().nextInt(99999999).toString();
+    final timestamp = DateTime.now().microsecondsSinceEpoch.toString();
+    final raw = '$cleanUsername-$randomPart-$timestamp';
+    final bytes = utf8.encode(raw);
+    final digest = sha256.convert(bytes);
+    return digest.toString().substring(0, 12);
+  }
+
+  // Insert or update a contact with optional localRoomId
+  Future<void> saveContact(
+    String phoneNumber, 
+    String savedName, {
+    bool isRegistered = false,
+    String? localRoomId,
+  }) async {
     final db = await database;
+    String? finalRoomId = localRoomId;
+    if (finalRoomId == null || finalRoomId.isEmpty) {
+      final existing = await getContactByPhone(phoneNumber);
+      if (existing != null && (existing['local_room_id'] ?? '').toString().isNotEmpty) {
+        finalRoomId = existing['local_room_id'] as String;
+      }
+    }
+
     await db.insert(
       'contacts',
       {
         'phone_number': phoneNumber, 
         'saved_name': savedName,
-        'is_registered': isRegistered ? 1 : 0
+        'is_registered': isRegistered ? 1 : 0,
+        'local_room_id': finalRoomId,
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
+  }
+
+  // Get local room ID by phone number
+  Future<String?> getLocalRoomId(String phoneNumber) async {
+    final c = await getContactByPhone(phoneNumber);
+    if (c != null && (c['local_room_id'] ?? '').toString().isNotEmpty) {
+      return c['local_room_id'] as String;
+    }
+    return null;
   }
 
   // Get all contacts

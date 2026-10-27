@@ -81,9 +81,28 @@ class NotificationService {
     // Dengarkan pesan foreground — tidak tampilkan popup (user sedang buka app)
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
       print("Menerima notifikasi foreground: ${message.notification?.title}");
+      handleIncomingMessageDelivery(message);
     });
 
     _isInitialized = true;
+  }
+
+  static Future<void> handleIncomingMessageDelivery(RemoteMessage message) async {
+    try {
+      final data = message.data;
+      final roomId = data['chat_room_id'] ?? data['roomId'] ?? data['room_id'];
+      final rawMsgId = data['message_id'] ?? data['messageId'] ?? data['id'];
+      if (roomId != null) {
+        List<int> ids = [];
+        if (rawMsgId != null) {
+          final id = int.tryParse(rawMsgId.toString());
+          if (id != null) ids.add(id);
+        }
+        await ApiService.markMessagesAsDelivered(roomId.toString(), messageIds: ids);
+      }
+    } catch (e) {
+      print("[NotificationService] Gagal update delivered status: $e");
+    }
   }
 
   Future<bool> checkPermission() async {
