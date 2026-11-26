@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'package:file_picker/file_picker.dart';
 import 'package:record/record.dart';
+import 'package:audioplayers/audioplayers.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
@@ -47,7 +48,7 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
-  
+
   List<dynamic> _messages = [];
   List<dynamic> _groupMembers = [];
   Map<String, String> _contactMap = {};
@@ -69,7 +70,18 @@ class _ChatScreenState extends State<ChatScreen> {
   final AudioRecorder _audioRecorder = AudioRecorder();
   Timer? _recordingTimer;
   int _recordingDuration = 0;
-  
+
+  // Review Voice Note (Preview lokal sebelum kirim)
+  String? _recordedAudioPath;
+  int _recordedAudioDuration = 0;
+  final AudioPlayer _previewAudioPlayer = AudioPlayer();
+  bool _isPreviewPlaying = false;
+  Duration _previewPosition = Duration.zero;
+  Duration _previewTotalDuration = Duration.zero;
+  StreamSubscription? _previewPlayerCompleteSub;
+  StreamSubscription? _previewPlayerPosSub;
+  StreamSubscription? _previewPlayerDurSub;
+
   bool _isComposing = false;
   bool _isRecording = false;
   Map<String, dynamic>? _replyingToMessage;
@@ -103,6 +115,22 @@ class _ChatScreenState extends State<ChatScreen> {
         });
       }
     });
+
+    _previewPlayerPosSub = _previewAudioPlayer.onPositionChanged.listen((p) {
+      if (mounted) setState(() => _previewPosition = p);
+    });
+    _previewPlayerDurSub = _previewAudioPlayer.onDurationChanged.listen((d) {
+      if (mounted) setState(() => _previewTotalDuration = d);
+    });
+    _previewPlayerCompleteSub =
+        _previewAudioPlayer.onPlayerComplete.listen((_) {
+      if (mounted) {
+        setState(() {
+          _isPreviewPlaying = false;
+          _previewPosition = Duration.zero;
+        });
+      }
+    });
   }
 
   void _initSocket() {
@@ -111,11 +139,14 @@ class _ChatScreenState extends State<ChatScreen> {
       'autoConnect': false,
       'forceNew': true,
     });
-    
+
     _socket!.connect();
-    
+
     _socket!.onConnect((_) {
-      _socket!.emit('join', widget.isGroup ? 'group_$_activeRoomId' : _activeRoomId);
+      _socket!.emit(
+        'join',
+        widget.isGroup ? 'group_$_activeRoomId' : _activeRoomId,
+      );
       if (_myUserId != null) {
         _socket!.emit('enter_room', {
           'roomId': _activeRoomId,
@@ -131,18 +162,32 @@ class _ChatScreenState extends State<ChatScreen> {
           return;
         }
 
-        if (data['ciphertext'] != null && data['sender_id'].toString() != _myUserId) {
-          try {
-            final decrypted = EncryptionService.decryptMessage(data['ciphertext']);
-            data['message'] = decrypted;
-          } catch (e) {
-            print('Socket decrypt error: $e');
-          }
+        // Dekripsi pesan jika terenkripsi
+        final rawMessage = data['message']?.toString() ?? data['ciphertext']?.toString() ?? '';
+        if (rawMessage.isNotEmpty) {
+          data['message'] = EncryptionService.decryptMessage(rawMessage);
+        }
+        if (data['reply_to_message'] != null &&
+            data['reply_to_message'].toString().isNotEmpty) {
+          data['reply_to_message'] = EncryptionService.decryptMessage(
+            data['reply_to_message'].toString(),
+          );
+        }
+        if (data['caption'] != null &&
+            data['caption'].toString().isNotEmpty) {
+          data['caption'] = EncryptionService.decryptMessage(
+            data['caption'].toString(),
+          );
         }
         setState(() {
-          final exists = _messages.any((m) => m['id'].toString() == data['id'].toString());
+          final exists = _messages.any(
+            (m) => m['id'].toString() == data['id'].toString(),
+          );
           if (!exists) {
-            _messages.removeWhere((m) => m['status'] == 'pending' && m['message'] == data['message']);
+            _messages.removeWhere(
+              (m) =>
+                  m['status'] == 'pending' && m['message'] == data['message'],
+            );
             _messages.insert(0, data);
           }
         });
@@ -151,7 +196,9 @@ class _ChatScreenState extends State<ChatScreen> {
         // Jika pesan dikirim oleh lawan bicara, kirim status delivered dan enter_room
         if (data['sender_id'].toString() != _myUserId) {
           final dynamic rawMsgId = data['id'];
-          final int? msgId = rawMsgId is int ? rawMsgId : int.tryParse(rawMsgId?.toString() ?? '');
+          final int? msgId = rawMsgId is int
+              ? rawMsgId
+              : int.tryParse(rawMsgId?.toString() ?? '');
           final ids = msgId != null ? [msgId] : <int>[];
 
           if (_socket != null && _socket!.connected && _myUserId != null) {
@@ -174,10 +221,14 @@ class _ChatScreenState extends State<ChatScreen> {
     _socket!.on('messages:delivered', (data) {
       if (mounted && data != null) {
         final List<dynamic>? rawIds = data['messageIds'];
-        final List<String>? targetIds = rawIds?.map((e) => e.toString()).toList();
+        final List<String>? targetIds = rawIds
+            ?.map((e) => e.toString())
+            .toList();
         setState(() {
           for (var msg in _messages) {
-            if (targetIds == null || targetIds.isEmpty || targetIds.contains(msg['id'].toString())) {
+            if (targetIds == null ||
+                targetIds.isEmpty ||
+                targetIds.contains(msg['id'].toString())) {
               msg['is_delivered'] = 1;
             }
           }
@@ -218,17 +269,22 @@ class _ChatScreenState extends State<ChatScreen> {
                   if (rawMyVotes is List) {
                     myVotesToUse = rawMyVotes;
                   } else {
-                    myVotesToUse = List<dynamic>.from(msg['poll']['my_votes'] ?? []);
+                    myVotesToUse = List<dynamic>.from(
+                      msg['poll']['my_votes'] ?? [],
+                    );
                   }
 
-                  final updatedOptions = List<dynamic>.from(pollData['options'] ?? []);
+                  final updatedOptions = List<dynamic>.from(
+                    pollData['options'] ?? [],
+                  );
                   for (var opt in updatedOptions) {
                     final optId = opt['id'];
                     opt['is_voted_by_me'] = myVotesToUse.contains(optId);
                   }
 
                   msg['poll']['options'] = updatedOptions;
-                  msg['poll']['total_voters'] = pollData['total_voters'] ?? msg['poll']['total_voters'];
+                  msg['poll']['total_voters'] =
+                      pollData['total_voters'] ?? msg['poll']['total_voters'];
                   msg['poll']['my_votes'] = myVotesToUse;
                   break;
                 }
@@ -243,8 +299,12 @@ class _ChatScreenState extends State<ChatScreen> {
     _socket!.on('messages:deleted', (data) {
       if (mounted && data != null) {
         final deletedBy = data['deletedBy']?.toString();
-        final rawIds = (data['messageIds'] as List<dynamic>? ?? []).map((e) => e.toString()).toSet();
-        final hardDeleted = (data['hardDeletedIds'] as List<dynamic>? ?? []).map((e) => e.toString()).toSet();
+        final rawIds = (data['messageIds'] as List<dynamic>? ?? [])
+            .map((e) => e.toString())
+            .toSet();
+        final hardDeleted = (data['hardDeletedIds'] as List<dynamic>? ?? [])
+            .map((e) => e.toString())
+            .toSet();
 
         if (deletedBy == _myUserId || hardDeleted.isNotEmpty) {
           setState(() {
@@ -287,7 +347,7 @@ class _ChatScreenState extends State<ChatScreen> {
     setState(() {
       _myUserId = prefs.getString('user_id');
     });
-    
+
     // If socket is already connected when userId is loaded, emit enter_room
     if (_socket != null && _socket!.connected && _myUserId != null) {
       _socket!.emit('enter_room', {
@@ -312,6 +372,10 @@ class _ChatScreenState extends State<ChatScreen> {
     _scrollController.dispose();
     _recordingTimer?.cancel();
     _audioRecorder.dispose();
+    _previewPlayerPosSub?.cancel();
+    _previewPlayerDurSub?.cancel();
+    _previewPlayerCompleteSub?.cancel();
+    _previewAudioPlayer.dispose();
     super.dispose();
   }
 
@@ -338,8 +402,16 @@ class _ChatScreenState extends State<ChatScreen> {
     try {
       final currentOffset = _messages.length;
       final result = widget.isGroup
-          ? await ApiService.getGroupMessages(_activeRoomId, limit: _pageSize, offset: currentOffset)
-          : await ApiService.getChatMessages(_activeRoomId, limit: _pageSize, offset: currentOffset);
+          ? await ApiService.getGroupMessages(
+              _activeRoomId,
+              limit: _pageSize,
+              offset: currentOffset,
+            )
+          : await ApiService.getChatMessages(
+              _activeRoomId,
+              limit: _pageSize,
+              offset: currentOffset,
+            );
 
       if (result['success'] && mounted) {
         final List<dynamic> msgs = result['data']['messages'] ?? [];
@@ -351,19 +423,23 @@ class _ChatScreenState extends State<ChatScreen> {
           return;
         }
 
-        // Decrypt ciphertext
+        // Decrypt messages
         for (var i = 0; i < msgs.length; i++) {
-          if (msgs[i]['ciphertext'] != null && msgs[i]['type'] != null) {
-            try {
-              if (msgs[i]['sender_id'].toString() != _myUserId) {
-                final decrypted = EncryptionService.decryptMessage(msgs[i]['ciphertext']);
-                msgs[i]['message'] = decrypted;
-              } else {
-                msgs[i]['message'] = msgs[i]['message'] ?? 'Pesan terenkripsi';
-              }
-            } catch (e) {
-              print('Decrypt error: $e');
-            }
+          final rawMsg = msgs[i]['message']?.toString() ?? msgs[i]['ciphertext']?.toString() ?? '';
+          if (rawMsg.isNotEmpty) {
+            msgs[i]['message'] = EncryptionService.decryptMessage(rawMsg);
+          }
+          if (msgs[i]['reply_to_message'] != null &&
+              msgs[i]['reply_to_message'].toString().isNotEmpty) {
+            msgs[i]['reply_to_message'] = EncryptionService.decryptMessage(
+              msgs[i]['reply_to_message'].toString(),
+            );
+          }
+          if (msgs[i]['caption'] != null &&
+              msgs[i]['caption'].toString().isNotEmpty) {
+            msgs[i]['caption'] = EncryptionService.decryptMessage(
+              msgs[i]['caption'].toString(),
+            );
           }
         }
 
@@ -408,7 +484,10 @@ class _ChatScreenState extends State<ChatScreen> {
       final contacts = await DatabaseHelper().getContacts();
       final map = <String, String>{};
       for (var c in contacts) {
-        String phone = c['phone_number'].toString().replaceAll(RegExp(r'[^0-9]'), '').trim();
+        String phone = c['phone_number']
+            .toString()
+            .replaceAll(RegExp(r'[^0-9]'), '')
+            .trim();
         if (phone.startsWith('62')) {
           phone = '0${phone.substring(2)}';
         }
@@ -419,80 +498,74 @@ class _ChatScreenState extends State<ChatScreen> {
       debugPrint("Gagal load kontak: $e");
     }
 
-    final result = widget.isGroup 
-        ? await ApiService.getGroupMessages(_activeRoomId, limit: _pageSize, offset: 0) 
-        : await ApiService.getChatMessages(_activeRoomId, limit: _pageSize, offset: 0);
+    final result = widget.isGroup
+        ? await ApiService.getGroupMessages(
+            _activeRoomId,
+            limit: _pageSize,
+            offset: 0,
+          )
+        : await ApiService.getChatMessages(
+            _activeRoomId,
+            limit: _pageSize,
+            offset: 0,
+          );
     if (result['success']) {
       _isRoomCreatedOnServer = true;
       final List<dynamic> msgs = result['data']['messages'] ?? [];
-          
 
-                    // Decrypt messages if they have ciphertext
-
-                    for (var i = 0; i < msgs.length; i++) {
-
-                      if (msgs[i]['ciphertext'] != null && msgs[i]['type'] != null) {
-
-                        try {
-
-                           // If we didn't send it, decrypt it using the sender's phone number as ID
-
-                           // Wait, what if we sent it? If we sent it, we can't easily decrypt it unless we encrypt it for ourselves too (Signal handles this via SessionCipher on our own device, but it requires sync).
-
-                           // We actually only encrypt ONE way. This is a prototype limitation!
-
-                           if (msgs[i]['sender_id'].toString() != _myUserId) {
-
-                             final decrypted = EncryptionService.decryptMessage(msgs[i]['ciphertext']);
-
-                             msgs[i]['message'] = decrypted;
-
-                           } else {
-
-                             // Cannot decrypt our own ciphertext without sender keys or sending a copy to ourselves
-
-                             msgs[i]['message'] = msgs[i]['message'] ?? 'Pesan terenkripsi';
-
-                           }
-
-                        } catch (e) {
-
-                           print('Decrypt error: \$e');
-
-                        }
-
-                      }
-
-                    }
-
-        if (mounted) {
-          setState(() {
-            _messages = msgs.reversed.toList();
-            _hasMore = msgs.length >= _pageSize;
-            if (widget.isGroup && result['data']['members'] != null) {
-              _groupMembers = result['data']['members'];
-            }
-            _isLoading = false;
-            _error = null;
-          });
-
-          if (widget.isGroup) {
-            final cleanId = _activeRoomId.replaceFirst('group_', '');
-            ApiService.getGroupDetails(cleanId).then((groupDetailRes) {
-              if (groupDetailRes['success'] == true && groupDetailRes['data'] != null && mounted) {
-                final g = groupDetailRes['data'];
-                setState(() {
-                  _sendMessagesPermission = g['send_messages_permission'] ?? 'all';
-                  final currentUser = g['current_user'];
-                  _isCurrentUserGroupAdmin = currentUser?['is_admin'] == true;
-                });
-              }
-            }).catchError((_) {});
-          }
-
-          // Deteksi pesan dari lawan bicara yang belum berstatus delivered
-          _checkAndMarkUndeliveredMessages(msgs);
+      // Decrypt messages (AES-256 E2EE)
+      for (var i = 0; i < msgs.length; i++) {
+        final rawMsg = msgs[i]['message']?.toString() ?? msgs[i]['ciphertext']?.toString() ?? '';
+        if (rawMsg.isNotEmpty) {
+          msgs[i]['message'] = EncryptionService.decryptMessage(rawMsg);
         }
+        if (msgs[i]['reply_to_message'] != null &&
+            msgs[i]['reply_to_message'].toString().isNotEmpty) {
+          msgs[i]['reply_to_message'] = EncryptionService.decryptMessage(
+            msgs[i]['reply_to_message'].toString(),
+          );
+        }
+        if (msgs[i]['caption'] != null &&
+            msgs[i]['caption'].toString().isNotEmpty) {
+          msgs[i]['caption'] = EncryptionService.decryptMessage(
+            msgs[i]['caption'].toString(),
+          );
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _messages = msgs.reversed.toList();
+          _hasMore = msgs.length >= _pageSize;
+          if (widget.isGroup && result['data']['members'] != null) {
+            _groupMembers = result['data']['members'];
+          }
+          _isLoading = false;
+          _error = null;
+        });
+
+        if (widget.isGroup) {
+          final cleanId = _activeRoomId.replaceFirst('group_', '');
+          ApiService.getGroupDetails(cleanId)
+              .then((groupDetailRes) {
+                if (groupDetailRes['success'] == true &&
+                    groupDetailRes['data'] != null &&
+                    mounted) {
+                  final g = groupDetailRes['data'];
+                  setState(() {
+                    _sendMessagesPermission =
+                        g['send_messages_permission'] ?? 'all';
+                    final currentUser = g['current_user'];
+                    _isCurrentUserGroupAdmin = currentUser?['is_admin'] == true;
+                  });
+                }
+              })
+              .catchError((_) {});
+        }
+
+        // Deteksi pesan dari lawan bicara yang belum berstatus delivered
+        _checkAndMarkUndeliveredMessages(msgs);
+      }
     } else {
       if (mounted) {
         setState(() {
@@ -526,19 +599,25 @@ class _ChatScreenState extends State<ChatScreen> {
     final text = _messageController.text.trim();
     if (text.isEmpty) return;
 
-    final int? replyToId = _replyingToMessage?['id'] is int 
-        ? _replyingToMessage!['id'] 
+    final int? replyToId = _replyingToMessage?['id'] is int
+        ? _replyingToMessage!['id']
         : int.tryParse(_replyingToMessage?['id']?.toString() ?? '');
-    final String? replyToMediaType = _replyingToMessage?['media_type']?.toString();
-    final String? replyToSenderName = _replyingToMessage != null 
-        ? (_replyingToMessage!['sender_id'].toString() == _myUserId 
-            ? 'Anda' 
-            : (_contactMap[_normalizePhone(_replyingToMessage!['phone']?.toString())] ?? _replyingToMessage!['name'] ?? 'User'))
+    final String? replyToMediaType = _replyingToMessage?['media_type']
+        ?.toString();
+    final String? replyToSenderName = _replyingToMessage != null
+        ? (_replyingToMessage!['sender_id'].toString() == _myUserId
+              ? 'Anda'
+              : (_contactMap[_normalizePhone(
+                      _replyingToMessage!['phone']?.toString(),
+                    )] ??
+                    _replyingToMessage!['name'] ??
+                    'User'))
         : null;
     final String? replyToMessage = _replyingToMessage != null
-        ? (_replyingToMessage!['message'] != null && _replyingToMessage!['message'].toString().isNotEmpty
-            ? _replyingToMessage!['message'].toString()
-            : _getMediaTypeLabel(replyToMediaType))
+        ? (_replyingToMessage!['message'] != null &&
+                  _replyingToMessage!['message'].toString().isNotEmpty
+              ? _replyingToMessage!['message'].toString()
+              : _getMediaTypeLabel(replyToMediaType))
         : null;
 
     final tempMsg = {
@@ -546,7 +625,7 @@ class _ChatScreenState extends State<ChatScreen> {
       'sender_id': int.tryParse(_myUserId ?? '0'),
       'message': text,
       'created_at': DateTime.now().toIso8601String(),
-      'status': 'pending', 
+      'status': 'pending',
       'reply_to_id': replyToId,
       'reply_to_sender_name': replyToSenderName,
       'reply_to_message': replyToMessage,
@@ -563,23 +642,16 @@ class _ChatScreenState extends State<ChatScreen> {
     });
     _scrollToBottom();
 
-    String? ciphertext;
-    String? cipherType;
-
-    if (!widget.isGroup) {
-      try {
-        ciphertext = EncryptionService.encryptMessage(text);
-        cipherType = 'normal';
-      } catch (e) {
-        print('Encryption error: $e');
-      }
-    }
+    // E2EE: Enkripsi teks menggunakan AES-256 sebelum dikirim ke server!
+    final encryptedText = EncryptionService.encryptMessage(text);
+    final ciphertext = encryptedText;
+    const cipherType = 'aes256';
 
     Map<String, dynamic> result;
     if (widget.isGroup) {
       result = await ApiService.sendGroupMessage(
-        _activeRoomId, 
-        text, 
+        _activeRoomId,
+        encryptedText,
         replyToId: replyToId,
         replyToSenderName: replyToSenderName,
         replyToMessage: replyToMessage,
@@ -588,11 +660,11 @@ class _ChatScreenState extends State<ChatScreen> {
         type: cipherType,
       );
     } else if (!_isRoomCreatedOnServer) {
-      // Buat room di server secara atomik dengan ID lokal unik + kirim pesan pertama!
+      // Buat room di server secara atomik dengan ID lokal unik + kirim pesan pertama terenkripsi!
       result = await ApiService.createChatRoomAndSendMessage(
         phone: widget.otherUserPhone,
         roomId: _activeRoomId,
-        message: text,
+        message: encryptedText,
         replyToId: replyToId,
         replyToSenderName: replyToSenderName,
         replyToMessage: replyToMessage,
@@ -621,21 +693,24 @@ class _ChatScreenState extends State<ChatScreen> {
       }
     } else {
       result = await ApiService.sendMessage(
-        _activeRoomId, 
-        text, 
-        replyToId: replyToId, 
+        _activeRoomId,
+        encryptedText,
+        replyToId: replyToId,
         replyToSenderName: replyToSenderName,
         replyToMessage: replyToMessage,
         replyToMediaType: replyToMediaType,
-        ciphertext: ciphertext, 
+        ciphertext: ciphertext,
         type: cipherType,
       );
       // Fallback jika terjadi error FK constraint:
-      if (!result['success'] && (result['message'] ?? '').toString().toLowerCase().contains('foreign key')) {
+      if (!result['success'] &&
+          (result['message'] ?? '').toString().toLowerCase().contains(
+            'foreign key',
+          )) {
         result = await ApiService.createChatRoomAndSendMessage(
           phone: widget.otherUserPhone,
           roomId: _activeRoomId,
-          message: text,
+          message: encryptedText,
           replyToId: replyToId,
           replyToSenderName: replyToSenderName,
           replyToMessage: replyToMessage,
@@ -661,20 +736,30 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  Future<void> _uploadMedia(String path, String mediaType, {String caption = ''}) async {
-    final int? replyToId = _replyingToMessage?['id'] is int 
-        ? _replyingToMessage!['id'] 
+  Future<void> _uploadMedia(
+    String path,
+    String mediaType, {
+    String caption = '',
+  }) async {
+    final int? replyToId = _replyingToMessage?['id'] is int
+        ? _replyingToMessage!['id']
         : int.tryParse(_replyingToMessage?['id']?.toString() ?? '');
-    final String? replyToMediaType = _replyingToMessage?['media_type']?.toString();
-    final String? replyToSenderName = _replyingToMessage != null 
-        ? (_replyingToMessage!['sender_id'].toString() == _myUserId 
-            ? 'Anda' 
-            : (_contactMap[_normalizePhone(_replyingToMessage!['phone']?.toString())] ?? _replyingToMessage!['name'] ?? 'User'))
+    final String? replyToMediaType = _replyingToMessage?['media_type']
+        ?.toString();
+    final String? replyToSenderName = _replyingToMessage != null
+        ? (_replyingToMessage!['sender_id'].toString() == _myUserId
+              ? 'Anda'
+              : (_contactMap[_normalizePhone(
+                      _replyingToMessage!['phone']?.toString(),
+                    )] ??
+                    _replyingToMessage!['name'] ??
+                    'User'))
         : null;
     final String? replyToMessage = _replyingToMessage != null
-        ? (_replyingToMessage!['message'] != null && _replyingToMessage!['message'].toString().isNotEmpty
-            ? _replyingToMessage!['message'].toString()
-            : _getMediaTypeLabel(replyToMediaType))
+        ? (_replyingToMessage!['message'] != null &&
+                  _replyingToMessage!['message'].toString().isNotEmpty
+              ? _replyingToMessage!['message'].toString()
+              : _getMediaTypeLabel(replyToMediaType))
         : null;
 
     if (_replyingToMessage != null) {
@@ -684,7 +769,10 @@ class _ChatScreenState extends State<ChatScreen> {
     }
 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Mengirim media...'), duration: Duration(seconds: 1)),
+      const SnackBar(
+        content: Text('Mengirim media...'),
+        duration: Duration(seconds: 1),
+      ),
     );
 
     // Pastikan room aktif di server sebelum kirim media
@@ -702,22 +790,24 @@ class _ChatScreenState extends State<ChatScreen> {
       }
     }
 
-    final result = widget.isGroup 
+    final encryptedCaption = caption.isNotEmpty ? EncryptionService.encryptMessage(caption) : '';
+
+    final result = widget.isGroup
         ? await ApiService.uploadGroupMedia(
-            _activeRoomId, 
-            path, 
+            _activeRoomId,
+            path,
             mediaType,
-            caption: caption,
+            caption: encryptedCaption,
             replyToId: replyToId,
             replyToSenderName: replyToSenderName,
             replyToMessage: replyToMessage,
             replyToMediaType: replyToMediaType,
-          ) 
+          )
         : await ApiService.uploadMedia(
-            _activeRoomId, 
-            path, 
+            _activeRoomId,
+            path,
             mediaType,
-            caption: caption,
+            caption: encryptedCaption,
             replyToId: replyToId,
             replyToSenderName: replyToSenderName,
             replyToMessage: replyToMessage,
@@ -750,17 +840,20 @@ class _ChatScreenState extends State<ChatScreen> {
                 title: const Text('Galeri (Gambar/Video)'),
                 onTap: () async {
                   Navigator.pop(context);
-                  final List<AssetEntity>? assets = await AssetPicker.pickAssets(
-                    context,
-                    pickerConfig: const AssetPickerConfig(
-                      requestType: RequestType.common,
-                      maxAssets: 1,
-                    ),
-                  );
+                  final List<AssetEntity>? assets =
+                      await AssetPicker.pickAssets(
+                        context,
+                        pickerConfig: const AssetPickerConfig(
+                          requestType: RequestType.common,
+                          maxAssets: 1,
+                        ),
+                      );
                   if (assets != null && assets.isNotEmpty) {
                     final File? file = await assets.first.file;
                     if (file != null) {
-                      final type = assets.first.type == AssetType.video ? 'video' : 'image';
+                      final type = assets.first.type == AssetType.video
+                          ? 'video'
+                          : 'image';
                       _uploadMedia(file.path, type);
                     }
                   }
@@ -789,19 +882,25 @@ class _ChatScreenState extends State<ChatScreen> {
                       ),
                     ),
                   );
-                  
+
                   if (result != null && result is File) {
-                    final type = result.path.toLowerCase().endsWith('.mp4') ? 'video' : 'image';
+                    final type = result.path.toLowerCase().endsWith('.mp4')
+                        ? 'video'
+                        : 'image';
                     _uploadMedia(result.path, type);
                   }
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.insert_drive_file, color: Colors.orange),
+                leading: const Icon(
+                  Icons.insert_drive_file,
+                  color: Colors.orange,
+                ),
                 title: const Text('Dokumen / File'),
                 onTap: () async {
                   Navigator.pop(context);
-                  FilePickerResult? result = await FilePicker.platform.pickFiles();
+                  FilePickerResult? result = await FilePicker.platform
+                      .pickFiles();
                   if (result != null && result.files.single.path != null) {
                     _uploadMedia(result.files.single.path!, 'file');
                   }
@@ -809,9 +908,15 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
               if (widget.isGroup)
                 ListTile(
-                  leading: const Icon(Icons.poll_rounded, color: Colors.deepPurple, size: 26),
+                  leading: const Icon(
+                    Icons.poll_rounded,
+                    color: Colors.deepPurple,
+                    size: 26,
+                  ),
                   title: const Text('Polling / Voting'),
-                  subtitle: const Text('Buat pemungutan suara untuk anggota grup'),
+                  subtitle: const Text(
+                    'Buat pemungutan suara untuk anggota grup',
+                  ),
                   onTap: () {
                     Navigator.pop(context);
                     _openCreatePollScreen();
@@ -843,7 +948,8 @@ class _ChatScreenState extends State<ChatScreen> {
     final cleanId = widget.roomId.replaceFirst('group_', '');
 
     // Optimistic UI update
-    final bool isMultiple = poll['multiple_answers'] == true || poll['multiple_answers'] == 1;
+    final bool isMultiple =
+        poll['multiple_answers'] == true || poll['multiple_answers'] == 1;
     final options = List<dynamic>.from(poll['options'] ?? []);
     final myVotes = List<dynamic>.from(poll['my_votes'] ?? []);
 
@@ -872,7 +978,11 @@ class _ChatScreenState extends State<ChatScreen> {
       }
     });
 
-    final res = await ApiService.voteGroupPoll(cleanId, pollId, optionId: optionId);
+    final res = await ApiService.voteGroupPoll(
+      cleanId,
+      pollId,
+      optionId: optionId,
+    );
     if (res['success'] == true && res['data'] != null && mounted) {
       setState(() {
         msg['poll'] = res['data'];
@@ -901,44 +1011,85 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   final List<Map<String, String>> _popularGifs = const [
-    {'title': 'Ketawa', 'url': 'https://media.giphy.com/media/26n6Gx9moCgs1qxmg/giphy.gif'},
-    {'title': 'Senang', 'url': 'https://media.giphy.com/media/artj92V8o75VPL7AeQ/giphy.gif'},
-    {'title': 'Jempol', 'url': 'https://media.giphy.com/media/111ebonMs90YLu/giphy.gif'},
-    {'title': 'Tepuk Tangan', 'url': 'https://media.giphy.com/media/ely3apij36BJhoZ234/giphy.gif'},
-    {'title': 'Kaget', 'url': 'https://media.giphy.com/media/5VKbvrjxpVJCM/giphy.gif'},
-    {'title': 'Joget', 'url': 'https://media.giphy.com/media/blSTtZehjAZ8I/giphy.gif'},
-    {'title': 'Sedih', 'url': 'https://media.giphy.com/media/7SF5scGB2AFrgsXP63/giphy.gif'},
-    {'title': 'Love', 'url': 'https://media.giphy.com/media/MDJ9IbxxvDUQM/giphy.gif'},
-    {'title': 'Dadah', 'url': 'https://media.giphy.com/media/dzaUX7CAG0Ihi/giphy.gif'},
-    {'title': 'Mikir', 'url': 'https://media.giphy.com/media/d3mlE7uhX8KFgEmY/giphy.gif'},
-    {'title': 'Semangat', 'url': 'https://media.giphy.com/media/3o7abKhOpu0NwenH3O/giphy.gif'},
-    {'title': 'Keren', 'url': 'https://media.giphy.com/media/l41lI4bYmcsPJX9Go/giphy.gif'},
+    {
+      'title': 'Ketawa',
+      'url': 'https://media.giphy.com/media/26n6Gx9moCgs1qxmg/giphy.gif',
+    },
+    {
+      'title': 'Senang',
+      'url': 'https://media.giphy.com/media/artj92V8o75VPL7AeQ/giphy.gif',
+    },
+    {
+      'title': 'Jempol',
+      'url': 'https://media.giphy.com/media/111ebonMs90YLu/giphy.gif',
+    },
+    {
+      'title': 'Tepuk Tangan',
+      'url': 'https://media.giphy.com/media/ely3apij36BJhoZ234/giphy.gif',
+    },
+    {
+      'title': 'Kaget',
+      'url': 'https://media.giphy.com/media/5VKbvrjxpVJCM/giphy.gif',
+    },
+    {
+      'title': 'Joget',
+      'url': 'https://media.giphy.com/media/blSTtZehjAZ8I/giphy.gif',
+    },
+    {
+      'title': 'Sedih',
+      'url': 'https://media.giphy.com/media/7SF5scGB2AFrgsXP63/giphy.gif',
+    },
+    {
+      'title': 'Love',
+      'url': 'https://media.giphy.com/media/MDJ9IbxxvDUQM/giphy.gif',
+    },
+    {
+      'title': 'Dadah',
+      'url': 'https://media.giphy.com/media/dzaUX7CAG0Ihi/giphy.gif',
+    },
+    {
+      'title': 'Mikir',
+      'url': 'https://media.giphy.com/media/d3mlE7uhX8KFgEmY/giphy.gif',
+    },
+    {
+      'title': 'Semangat',
+      'url': 'https://media.giphy.com/media/3o7abKhOpu0NwenH3O/giphy.gif',
+    },
+    {
+      'title': 'Keren',
+      'url': 'https://media.giphy.com/media/l41lI4bYmcsPJX9Go/giphy.gif',
+    },
   ];
 
   Future<void> _sendGifFromUrl(String url) async {
     Navigator.pop(context);
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Menyiapkan GIF...'), duration: Duration(seconds: 1)),
+      const SnackBar(
+        content: Text('Menyiapkan GIF...'),
+        duration: Duration(seconds: 1),
+      ),
     );
     try {
       final response = await http.get(Uri.parse(url));
       if (response.statusCode == 200) {
         final tempDir = await getTemporaryDirectory();
-        final file = File('${tempDir.path}/gif_${DateTime.now().millisecondsSinceEpoch}.gif');
+        final file = File(
+          '${tempDir.path}/gif_${DateTime.now().millisecondsSinceEpoch}.gif',
+        );
         await file.writeAsBytes(response.bodyBytes);
         await _uploadMedia(file.path, 'gif');
       } else {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Gagal mengunduh GIF')),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('Gagal mengunduh GIF')));
         }
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error mengirim GIF: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error mengirim GIF: $e')));
       }
     }
   }
@@ -1023,7 +1174,9 @@ class _ChatScreenState extends State<ChatScreen> {
                           children: [
                             Expanded(
                               child: ClipRRect(
-                                borderRadius: const BorderRadius.vertical(top: Radius.circular(10)),
+                                borderRadius: const BorderRadius.vertical(
+                                  top: Radius.circular(10),
+                                ),
                                 child: CachedNetworkImage(
                                   imageUrl: item['url']!,
                                   fit: BoxFit.cover,
@@ -1032,10 +1185,15 @@ class _ChatScreenState extends State<ChatScreen> {
                                     child: SizedBox(
                                       width: 24,
                                       height: 24,
-                                      child: CircularProgressIndicator(strokeWidth: 2),
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
                                     ),
                                   ),
-                                  errorWidget: (c, u, e) => const Icon(Icons.error, color: Colors.grey),
+                                  errorWidget: (c, u, e) => const Icon(
+                                    Icons.error,
+                                    color: Colors.grey,
+                                  ),
                                 ),
                               ),
                             ),
@@ -1044,7 +1202,10 @@ class _ChatScreenState extends State<ChatScreen> {
                               alignment: Alignment.center,
                               child: Text(
                                 item['title']!,
-                                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w500,
+                                ),
                               ),
                             ),
                           ],
@@ -1085,6 +1246,82 @@ class _ChatScreenState extends State<ChatScreen> {
     return '$m:$s';
   }
 
+  Future<void> _pauseAndStopRecording() async {
+    if (!_isRecording) return;
+    final path = await _audioRecorder.stop();
+    final duration = _recordingDuration;
+    _stopRecordingTimer();
+    setState(() {
+      _isRecording = false;
+      _recordedAudioPath = path;
+      _recordedAudioDuration = duration;
+      _previewPosition = Duration.zero;
+      _previewTotalDuration = Duration(seconds: duration);
+      _isPreviewPlaying = false;
+    });
+  }
+
+  Future<void> _cancelRecording() async {
+    if (_isRecording) {
+      final path = await _audioRecorder.stop();
+      _stopRecordingTimer();
+      setState(() => _isRecording = false);
+      if (path != null) {
+        try {
+          final file = File(path);
+          if (await file.exists()) await file.delete();
+        } catch (_) {}
+      }
+    }
+    await _cancelAudioPreview();
+  }
+
+  Future<void> _cancelAudioPreview() async {
+    try {
+      await _previewAudioPlayer.stop();
+    } catch (_) {}
+    if (_recordedAudioPath != null) {
+      try {
+        final file = File(_recordedAudioPath!);
+        if (await file.exists()) await file.delete();
+      } catch (_) {}
+    }
+    if (mounted) {
+      setState(() {
+        _recordedAudioPath = null;
+        _recordedAudioDuration = 0;
+        _isPreviewPlaying = false;
+        _previewPosition = Duration.zero;
+      });
+    }
+  }
+
+  Future<void> _togglePreviewPlayPause() async {
+    if (_recordedAudioPath == null) return;
+    if (_isPreviewPlaying) {
+      await _previewAudioPlayer.pause();
+      if (mounted) setState(() => _isPreviewPlaying = false);
+    } else {
+      await _previewAudioPlayer.play(DeviceFileSource(_recordedAudioPath!));
+      if (mounted) setState(() => _isPreviewPlaying = true);
+    }
+  }
+
+  Future<void> _sendReviewedAudio() async {
+    if (_recordedAudioPath == null) return;
+    try {
+      await _previewAudioPlayer.stop();
+    } catch (_) {}
+    final pathToSend = _recordedAudioPath!;
+    setState(() {
+      _recordedAudioPath = null;
+      _recordedAudioDuration = 0;
+      _isPreviewPlaying = false;
+      _previewPosition = Duration.zero;
+    });
+    _uploadMedia(pathToSend, 'audio');
+  }
+
   Future<void> _toggleRecording({bool cancelOnly = false}) async {
     if (_isRecording) {
       final path = await _audioRecorder.stop();
@@ -1094,9 +1331,11 @@ class _ChatScreenState extends State<ChatScreen> {
         _uploadMedia(path, 'audio');
       }
     } else {
+      await _cancelAudioPreview();
       if (await _audioRecorder.hasPermission()) {
         final dir = await getApplicationDocumentsDirectory();
-        final path = '${dir.path}/vn_${DateTime.now().millisecondsSinceEpoch}.m4a';
+        final path =
+            '${dir.path}/vn_${DateTime.now().millisecondsSinceEpoch}.m4a';
         await _audioRecorder.start(
           const RecordConfig(
             encoder: AudioEncoder.aacLc,
@@ -1249,12 +1488,18 @@ class _ChatScreenState extends State<ChatScreen> {
     final key = _messageKeys[msgIdStr];
     if (key?.currentContext == null) return;
 
-    final RenderBox? box = key!.currentContext!.findRenderObject() as RenderBox?;
+    final RenderBox? box =
+        key!.currentContext!.findRenderObject() as RenderBox?;
     if (box == null) return;
 
     final position = box.localToGlobal(Offset.zero);
     final size = box.size;
-    final messageRect = Rect.fromLTWH(position.dx, position.dy, size.width, size.height);
+    final messageRect = Rect.fromLTWH(
+      position.dx,
+      position.dy,
+      size.width,
+      size.height,
+    );
 
     // Render clone bubble yang mengambang dengan dimensi dan styling yang sama persis
     final floatingBubble = _buildBubbleContent(msg, isMe, isInteractive: false);
@@ -1324,7 +1569,9 @@ class _ChatScreenState extends State<ChatScreen> {
             icon: Icons.view_in_ar_rounded,
             onTap: () {
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Pesan ditambahkan ke Pesan Favorit')),
+                const SnackBar(
+                  content: Text('Pesan ditambahkan ke Pesan Favorit'),
+                ),
               );
             },
           ),
@@ -1365,7 +1612,9 @@ class _ChatScreenState extends State<ChatScreen> {
             icon: Icons.view_in_ar_rounded,
             onTap: () {
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Pesan ditambahkan ke Pesan Favorit')),
+                const SnackBar(
+                  content: Text('Pesan ditambahkan ke Pesan Favorit'),
+                ),
               );
             },
           )
@@ -1397,9 +1646,9 @@ class _ChatScreenState extends State<ChatScreen> {
           label: 'Baca Teks',
           icon: Icons.volume_up_outlined,
           onTap: () {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Membaca pesan...')),
-            );
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(const SnackBar(content: Text('Membaca pesan...')));
           },
         ),
       ];
@@ -1467,15 +1716,15 @@ class _ChatScreenState extends State<ChatScreen> {
       _isSelectionMode = false;
       _selectedMessageIds.clear();
     });
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Teruskan $count pesan')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('Teruskan $count pesan')));
   }
 
   void _forwardSingleMessage(dynamic msg) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Teruskan pesan')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Teruskan pesan')));
   }
 
   void _showTranslationDialog(dynamic msg) {
@@ -1496,11 +1745,17 @@ class _ChatScreenState extends State<ChatScreen> {
               children: const [
                 Icon(Icons.translate, color: Color(0xFF0F3460)),
                 SizedBox(width: 8),
-                Text('Terjemahan Pesan', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                Text(
+                  'Terjemahan Pesan',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                ),
               ],
             ),
             const SizedBox(height: 12),
-            Text(text, style: const TextStyle(fontSize: 15, color: Colors.black87)),
+            Text(
+              text,
+              style: const TextStyle(fontSize: 15, color: Colors.black87),
+            ),
             const SizedBox(height: 16),
             Align(
               alignment: Alignment.centerRight,
@@ -1517,16 +1772,20 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _showSearchDialog(dynamic msg) {
     final text = msg['message']?.toString() ?? '';
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Mencari "$text" dalam obrolan')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('Mencari "$text" dalam obrolan')));
   }
 
   void _confirmDeleteSelectedMessages() {
     if (_selectedMessageIds.isEmpty) return;
     final count = _selectedMessageIds.length;
-    final selectedMsgs = _messages.where((m) => _selectedMessageIds.contains(m['id']?.toString())).toList();
-    final allMine = selectedMsgs.every((m) => m['sender_id']?.toString() == _myUserId && m['is_recall'] != 1);
+    final selectedMsgs = _messages
+        .where((m) => _selectedMessageIds.contains(m['id']?.toString()))
+        .toList();
+    final allMine = selectedMsgs.every(
+      (m) => m['sender_id']?.toString() == _myUserId && m['is_recall'] != 1,
+    );
 
     showModalBottomSheet(
       context: context,
@@ -1604,12 +1863,17 @@ class _ChatScreenState extends State<ChatScreen> {
                       foregroundColor: Colors.white,
                       elevation: 0,
                       padding: const EdgeInsets.symmetric(vertical: 13),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                     icon: const Icon(Icons.undo_rounded, size: 20),
                     label: Text(
                       'Tarik $count Pesan untuk Semua Orang',
-                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                     onPressed: () {
                       Navigator.pop(ctx);
@@ -1623,11 +1887,17 @@ class _ChatScreenState extends State<ChatScreen> {
                 width: double.infinity,
                 child: ElevatedButton.icon(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: allMine ? Colors.grey.shade100 : Colors.red.shade600,
-                    foregroundColor: allMine ? const Color(0xFF374151) : Colors.white,
+                    backgroundColor: allMine
+                        ? Colors.grey.shade100
+                        : Colors.red.shade600,
+                    foregroundColor: allMine
+                        ? const Color(0xFF374151)
+                        : Colors.white,
                     elevation: 0,
                     padding: const EdgeInsets.symmetric(vertical: 13),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                   icon: Icon(
                     Icons.delete_outline_rounded,
@@ -1654,7 +1924,9 @@ class _ChatScreenState extends State<ChatScreen> {
                 child: TextButton(
                   style: TextButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                   onPressed: () => Navigator.pop(ctx),
                   child: Text(
@@ -1681,7 +1953,9 @@ class _ChatScreenState extends State<ChatScreen> {
     final count = ids.length;
     setState(() {
       for (var id in ids) {
-        final idx = _messages.indexWhere((m) => m['id']?.toString() == id.toString());
+        final idx = _messages.indexWhere(
+          (m) => m['id']?.toString() == id.toString(),
+        );
         if (idx != -1) {
           _messages[idx]['is_recall'] = 1;
           _messages[idx]['message'] = '';
@@ -1725,8 +1999,16 @@ class _ChatScreenState extends State<ChatScreen> {
     });
 
     final res = widget.isGroup
-        ? await ApiService.deleteGroupMessage(_activeRoomId, ids.first, messageIds: ids)
-        : await ApiService.deleteChatMessage(_activeRoomId, ids.first, messageIds: ids);
+        ? await ApiService.deleteGroupMessage(
+            _activeRoomId,
+            ids.first,
+            messageIds: ids,
+          )
+        : await ApiService.deleteChatMessage(
+            _activeRoomId,
+            ids.first,
+            messageIds: ids,
+          );
 
     if (!res['success'] && mounted) {
       setState(() {
@@ -1819,7 +2101,9 @@ class _ChatScreenState extends State<ChatScreen> {
                     foregroundColor: Colors.white,
                     elevation: 0,
                     padding: const EdgeInsets.symmetric(vertical: 13),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                   icon: const Icon(Icons.undo_rounded, size: 20),
                   label: const Text(
@@ -1838,7 +2122,9 @@ class _ChatScreenState extends State<ChatScreen> {
                 child: TextButton(
                   style: TextButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                   onPressed: () => Navigator.pop(ctx),
                   child: Text(
@@ -1862,8 +2148,12 @@ class _ChatScreenState extends State<ChatScreen> {
     final msgId = msg['id'];
     if (msgId == null) return;
 
-    final int index = _messages.indexWhere((m) => m['id']?.toString() == msgId.toString());
-    final backupMsg = index != -1 ? Map<String, dynamic>.from(_messages[index]) : null;
+    final int index = _messages.indexWhere(
+      (m) => m['id']?.toString() == msgId.toString(),
+    );
+    final backupMsg = index != -1
+        ? Map<String, dynamic>.from(_messages[index])
+        : null;
 
     if (index != -1) {
       setState(() {
@@ -1988,12 +2278,17 @@ class _ChatScreenState extends State<ChatScreen> {
                       foregroundColor: Colors.white,
                       elevation: 0,
                       padding: const EdgeInsets.symmetric(vertical: 13),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                     icon: const Icon(Icons.undo_rounded, size: 20),
                     label: const Text(
                       'Tarik untuk Semua Orang',
-                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                     onPressed: () {
                       Navigator.pop(ctx);
@@ -2007,11 +2302,17 @@ class _ChatScreenState extends State<ChatScreen> {
                 width: double.infinity,
                 child: ElevatedButton.icon(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: canRecall ? Colors.grey.shade100 : Colors.red.shade600,
-                    foregroundColor: canRecall ? const Color(0xFF374151) : Colors.white,
+                    backgroundColor: canRecall
+                        ? Colors.grey.shade100
+                        : Colors.red.shade600,
+                    foregroundColor: canRecall
+                        ? const Color(0xFF374151)
+                        : Colors.white,
                     elevation: 0,
                     padding: const EdgeInsets.symmetric(vertical: 13),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                   icon: Icon(
                     Icons.delete_outline_rounded,
@@ -2038,7 +2339,9 @@ class _ChatScreenState extends State<ChatScreen> {
                 child: TextButton(
                   style: TextButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                   onPressed: () => Navigator.pop(ctx),
                   child: Text(
@@ -2062,7 +2365,9 @@ class _ChatScreenState extends State<ChatScreen> {
     final msgId = msg['id'];
     if (msgId == null) return;
 
-    final int index = _messages.indexWhere((m) => m['id']?.toString() == msgId.toString());
+    final int index = _messages.indexWhere(
+      (m) => m['id']?.toString() == msgId.toString(),
+    );
     if (index != -1) {
       setState(() {
         _messages.removeAt(index);
@@ -2115,25 +2420,22 @@ class _ChatScreenState extends State<ChatScreen> {
     );
 
     final bubbleBgColor = isHighlighted
-        ? (isMe ? primaryColor.withOpacity(0.85) : Colors.amber.shade100)
+        ? (isMe ? primaryColor.withValues(alpha: 0.85) : Colors.amber.shade100)
         : (isMe ? primaryColor : Colors.grey.shade200);
 
     return Container(
       key: key,
-      constraints: BoxConstraints(
-        maxWidth: screenWidth * 0.75,
-        minWidth: 72,
-      ),
+      constraints: BoxConstraints(maxWidth: screenWidth * 0.75, minWidth: 72),
       decoration: isHighlighted
           ? BoxDecoration(
               borderRadius: bubbleRadius,
               border: Border.all(color: Colors.amber.shade700, width: 2.0),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.amber.withOpacity(0.5),
+                  color: Colors.amber.withValues(alpha: 0.5),
                   blurRadius: 10,
                   spreadRadius: 2,
-                )
+                ),
               ],
             )
           : null,
@@ -2144,12 +2446,12 @@ class _ChatScreenState extends State<ChatScreen> {
         child: InkWell(
           borderRadius: bubbleRadius,
           splashColor: isMe
-              ? Colors.black.withOpacity(0.24)
-              : Colors.black.withOpacity(0.12),
+              ? Colors.black.withValues(alpha: 0.24)
+              : Colors.black.withValues(alpha: 0.12),
           highlightColor: isMe
-              ? Colors.black.withOpacity(0.20)
-              : Colors.black.withOpacity(0.10),
-          hoverColor: Colors.black.withOpacity(0.05),
+              ? Colors.black.withValues(alpha: 0.20)
+              : Colors.black.withValues(alpha: 0.10),
+          hoverColor: Colors.black.withValues(alpha: 0.05),
           onTap: isInteractive
               ? () {
                   if (_isSelectionMode) {
@@ -2177,7 +2479,11 @@ class _ChatScreenState extends State<ChatScreen> {
                     _buildQuotedReply(msg, isMe),
                     if (widget.isGroup && !isMe) ...[
                       Text(
-                        _contactMap[_normalizePhone(msg['phone']?.toString())] ?? msg['name'] ?? 'User',
+                        _contactMap[_normalizePhone(
+                              msg['phone']?.toString(),
+                            )] ??
+                            msg['name'] ??
+                            'User',
                         style: TextStyle(
                           color: Colors.orange.shade800,
                           fontWeight: FontWeight.bold,
@@ -2187,7 +2493,8 @@ class _ChatScreenState extends State<ChatScreen> {
                       const SizedBox(height: 4),
                     ],
                     _buildMediaContent(msg, isMe),
-                    if (msg['caption'] != null && msg['caption'].toString().isNotEmpty) ...[
+                    if (msg['caption'] != null &&
+                        msg['caption'].toString().isNotEmpty) ...[
                       const SizedBox(height: 4),
                       Text(
                         msg['caption'],
@@ -2210,7 +2517,9 @@ class _ChatScreenState extends State<ChatScreen> {
                           const SizedBox(width: 6),
                           Flexible(
                             child: Text(
-                              isMe ? 'Anda telah menarik pesan ini' : 'Pesan ini telah ditarik',
+                              isMe
+                                  ? 'Anda telah menarik pesan ini'
+                                  : 'Pesan ini telah ditarik',
                               style: TextStyle(
                                 color: isMe ? Colors.white70 : Colors.black54,
                                 fontSize: 13.5,
@@ -2251,9 +2560,18 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Widget _buildQuotedReply(dynamic msg, bool isMe) {
     final replyId = msg['reply_to_id'] ?? msg['replyToId'];
-    final replySender = msg['reply_to_sender_name'] ?? msg['replyToSenderName'] ?? msg['reply_sender_name'];
-    final replyText = msg['reply_to_message'] ?? msg['replyToMessage'] ?? msg['reply_message'];
-    final replyMediaType = msg['reply_to_media_type'] ?? msg['replyToMediaType'] ?? msg['reply_media_type'];
+    final replySender =
+        msg['reply_to_sender_name'] ??
+        msg['replyToSenderName'] ??
+        msg['reply_sender_name'];
+    final replyText =
+        msg['reply_to_message'] ??
+        msg['replyToMessage'] ??
+        msg['reply_message'];
+    final replyMediaType =
+        msg['reply_to_media_type'] ??
+        msg['replyToMediaType'] ??
+        msg['reply_media_type'];
 
     if (replyId == null && replyText == null && replySender == null) {
       return const SizedBox.shrink();
@@ -2268,8 +2586,15 @@ class _ChatScreenState extends State<ChatScreen> {
         margin: const EdgeInsets.only(bottom: 6),
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
         decoration: BoxDecoration(
-          color: isMe ? Colors.black.withOpacity(0.18) : Colors.black.withOpacity(0.06),
-          border: Border(left: BorderSide(color: isMe ? Colors.white : accentColor, width: 3.5)),
+          color: isMe
+              ? Colors.black.withValues(alpha: 0.18)
+              : Colors.black.withValues(alpha: 0.06),
+          border: Border(
+            left: BorderSide(
+              color: isMe ? Colors.white : accentColor,
+              width: 3.5,
+            ),
+          ),
           borderRadius: BorderRadius.circular(6),
         ),
         child: Column(
@@ -2290,7 +2615,8 @@ class _ChatScreenState extends State<ChatScreen> {
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (replyMediaType != null && replyMediaType.toString().isNotEmpty) ...[
+                if (replyMediaType != null &&
+                    replyMediaType.toString().isNotEmpty) ...[
                   Icon(
                     _getMediaIconData(replyMediaType.toString()),
                     size: 13,
@@ -2300,8 +2626,8 @@ class _ChatScreenState extends State<ChatScreen> {
                 ],
                 Flexible(
                   child: Text(
-                    (replyText != null && replyText.toString().isNotEmpty) 
-                        ? replyText.toString() 
+                    (replyText != null && replyText.toString().isNotEmpty)
+                        ? replyText.toString()
                         : _getMediaTypeLabel(replyMediaType?.toString()),
                     style: TextStyle(
                       color: isMe ? Colors.white70 : Colors.black87,
@@ -2323,13 +2649,17 @@ class _ChatScreenState extends State<ChatScreen> {
     if (_replyingToMessage == null) return const SizedBox.shrink();
 
     const primaryColor = Color(0xFF0F3460);
-    final senderName = _replyingToMessage!['sender_id'].toString() == _myUserId 
-        ? 'Anda' 
-        : (_contactMap[_normalizePhone(_replyingToMessage!['phone']?.toString())] ?? _replyingToMessage!['name'] ?? 'User');
+    final senderName = _replyingToMessage!['sender_id'].toString() == _myUserId
+        ? 'Anda'
+        : (_contactMap[_normalizePhone(
+                _replyingToMessage!['phone']?.toString(),
+              )] ??
+              _replyingToMessage!['name'] ??
+              'User');
     final mediaType = _replyingToMessage!['media_type']?.toString();
     final text = _replyingToMessage!['message'];
-    final displayText = (text != null && text.toString().isNotEmpty) 
-        ? text.toString() 
+    final displayText = (text != null && text.toString().isNotEmpty)
+        ? text.toString()
         : _getMediaTypeLabel(mediaType);
 
     return Container(
@@ -2341,7 +2671,7 @@ class _ChatScreenState extends State<ChatScreen> {
         borderRadius: BorderRadius.circular(8),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 4,
             offset: const Offset(0, 2),
           ),
@@ -2372,13 +2702,20 @@ class _ChatScreenState extends State<ChatScreen> {
                 Row(
                   children: [
                     if (mediaType != null && mediaType.isNotEmpty) ...[
-                      Icon(_getMediaIconData(mediaType), size: 14, color: Colors.black54),
+                      Icon(
+                        _getMediaIconData(mediaType),
+                        size: 14,
+                        color: Colors.black54,
+                      ),
                       const SizedBox(width: 4),
                     ],
                     Expanded(
                       child: Text(
                         displayText,
-                        style: const TextStyle(fontSize: 12, color: Colors.black87),
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.black87,
+                        ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -2421,7 +2758,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final today = DateTime(now.year, now.month, now.day);
     final yesterday = today.subtract(const Duration(days: 1));
     final msgDate = DateTime(date.year, date.month, date.day);
-    
+
     if (msgDate == today) {
       return 'Hari ini';
     } else if (msgDate == yesterday) {
@@ -2464,7 +2801,9 @@ class _ChatScreenState extends State<ChatScreen> {
           width: 200,
           fit: BoxFit.cover,
           placeholder: (context, url) => const SizedBox(
-            width: 200, height: 200, child: Center(child: CircularProgressIndicator()),
+            width: 200,
+            height: 200,
+            child: Center(child: CircularProgressIndicator()),
           ),
           errorWidget: (context, url, error) => const Icon(Icons.error),
         ),
@@ -2480,7 +2819,9 @@ class _ChatScreenState extends State<ChatScreen> {
               width: 220,
               fit: BoxFit.cover,
               placeholder: (context, url) => const SizedBox(
-                width: 200, height: 160, child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                width: 200,
+                height: 160,
+                child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
               ),
               errorWidget: (context, url, error) => Container(
                 width: 200,
@@ -2491,7 +2832,10 @@ class _ChatScreenState extends State<ChatScreen> {
                   children: [
                     Icon(Icons.broken_image, color: Colors.grey),
                     SizedBox(height: 4),
-                    Text('Gagal memuat GIF', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                    Text(
+                      'Gagal memuat GIF',
+                      style: TextStyle(fontSize: 11, color: Colors.grey),
+                    ),
                   ],
                 ),
               ),
@@ -2535,7 +2879,7 @@ class _ChatScreenState extends State<ChatScreen> {
             Text(
               "File Terlampir",
               style: TextStyle(color: isMe ? Colors.white : Colors.black87),
-            )
+            ),
           ],
         ),
       );
@@ -2554,7 +2898,11 @@ class _ChatScreenState extends State<ChatScreen> {
         groupId: widget.roomId.toString(),
       );
     } else {
-      CallManager.instance.startCall(widget.otherUserPhone, widget.otherUserName, isVideo);
+      CallManager.instance.startCall(
+        widget.otherUserPhone,
+        widget.otherUserName,
+        isVideo,
+      );
     }
   }
 
@@ -2602,23 +2950,32 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
               title: Text(
                 '${_selectedMessageIds.length} dipilih',
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
+                ),
               ),
               actions: [
                 IconButton(
                   icon: const Icon(Icons.copy_rounded),
                   tooltip: 'Salin',
-                  onPressed: _selectedMessageIds.isEmpty ? null : _copySelectedMessages,
+                  onPressed: _selectedMessageIds.isEmpty
+                      ? null
+                      : _copySelectedMessages,
                 ),
                 IconButton(
                   icon: const Icon(Icons.shortcut_rounded),
                   tooltip: 'Teruskan',
-                  onPressed: _selectedMessageIds.isEmpty ? null : _forwardSelectedMessages,
+                  onPressed: _selectedMessageIds.isEmpty
+                      ? null
+                      : _forwardSelectedMessages,
                 ),
                 IconButton(
                   icon: const Icon(Icons.delete_outline_rounded),
                   tooltip: 'Hapus',
-                  onPressed: _selectedMessageIds.isEmpty ? null : _confirmDeleteSelectedMessages,
+                  onPressed: _selectedMessageIds.isEmpty
+                      ? null
+                      : _confirmDeleteSelectedMessages,
                 ),
               ],
             )
@@ -2629,31 +2986,38 @@ class _ChatScreenState extends State<ChatScreen> {
                     context,
                     PageRouteBuilder(
                       transitionDuration: const Duration(milliseconds: 320),
-                      reverseTransitionDuration: const Duration(milliseconds: 280),
-                      pageBuilder: (context, animation, secondaryAnimation) => ContactInfoScreen(
-                        phone: widget.otherUserPhone,
-                        displayName: widget.otherUserName,
-                        profilePic: widget.profilePic,
-                        roomId: widget.roomId,
-                        isGroup: widget.isGroup,
+                      reverseTransitionDuration: const Duration(
+                        milliseconds: 280,
                       ),
-                      transitionsBuilder: (context, animation, secondaryAnimation, child) {
-                        final curved = CurvedAnimation(
-                          parent: animation,
-                          curve: Curves.easeOutCubic,
-                          reverseCurve: Curves.easeInCubic,
-                        );
-                        return SlideTransition(
-                          position: Tween<Offset>(
-                            begin: const Offset(1.0, 0.0),
-                            end: Offset.zero,
-                          ).animate(curved),
-                          child: FadeTransition(
-                            opacity: Tween<double>(begin: 0.0, end: 1.0).animate(curved),
-                            child: child,
+                      pageBuilder: (context, animation, secondaryAnimation) =>
+                          ContactInfoScreen(
+                            phone: widget.otherUserPhone,
+                            displayName: widget.otherUserName,
+                            profilePic: widget.profilePic,
+                            roomId: widget.roomId,
+                            isGroup: widget.isGroup,
                           ),
-                        );
-                      },
+                      transitionsBuilder:
+                          (context, animation, secondaryAnimation, child) {
+                            final curved = CurvedAnimation(
+                              parent: animation,
+                              curve: Curves.easeOutCubic,
+                              reverseCurve: Curves.easeInCubic,
+                            );
+                            return SlideTransition(
+                              position: Tween<Offset>(
+                                begin: const Offset(1.0, 0.0),
+                                end: Offset.zero,
+                              ).animate(curved),
+                              child: FadeTransition(
+                                opacity: Tween<double>(
+                                  begin: 0.0,
+                                  end: 1.0,
+                                ).animate(curved),
+                                child: child,
+                              ),
+                            );
+                          },
                     ),
                   );
                 },
@@ -2665,10 +3029,16 @@ class _ChatScreenState extends State<ChatScreen> {
                       CircleAvatar(
                         radius: 20,
                         backgroundColor: Colors.white24,
-                        backgroundImage: widget.profilePic != null && widget.profilePic!.isNotEmpty
-                            ? CachedNetworkImageProvider(ApiService.getServerUrl(widget.profilePic!))
+                        backgroundImage:
+                            widget.profilePic != null &&
+                                widget.profilePic!.isNotEmpty
+                            ? CachedNetworkImageProvider(
+                                ApiService.getServerUrl(widget.profilePic!),
+                              )
                             : null,
-                        child: widget.profilePic == null || widget.profilePic!.isEmpty
+                        child:
+                            widget.profilePic == null ||
+                                widget.profilePic!.isEmpty
                             ? const Icon(Icons.person, color: Colors.white)
                             : null,
                       ),
@@ -2677,11 +3047,17 @@ class _ChatScreenState extends State<ChatScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(widget.otherUserName, style: const TextStyle(fontSize: 18)),
+                            Text(
+                              widget.otherUserName,
+                              style: const TextStyle(fontSize: 18),
+                            ),
                             if (subtitle.isNotEmpty)
                               Text(
                                 subtitle,
-                                style: const TextStyle(fontSize: 12, color: Colors.white70),
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.white70,
+                                ),
                                 overflow: TextOverflow.ellipsis,
                               ),
                           ],
@@ -2710,285 +3086,484 @@ class _ChatScreenState extends State<ChatScreen> {
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator())
                 : _error != null
-                    ? Center(child: Text('Error: $_error'))
-                    : _messages.isEmpty
-                        ? const Center(child: Text('Belum ada pesan. Ketik pesan pertama Anda!'))
-                        : ListView.builder(
-                            controller: _scrollController,
-                            reverse: true,
-                            itemCount: _messages.length + (_isLoadingMore ? 1 : 0),
-                            itemBuilder: (context, index) {
-                              if (index == _messages.length) {
-                                return const Padding(
-                                  padding: EdgeInsets.symmetric(vertical: 16.0),
-                                  child: Center(
-                                    child: SizedBox(
-                                      width: 24,
-                                      height: 24,
-                                      child: CircularProgressIndicator(strokeWidth: 2.5),
-                                    ),
-                                  ),
-                                );
-                              }
-
-                              final msg = _messages[index];
-                              final isMe = msg['sender_id'].toString() == _myUserId;
-                              final msgIdStr = msg['id'].toString();
-                              final isHighlighted = _highlightedMessageId == msgIdStr;
-                              
-                              bool showDateDivider = false;
-                              String dateText = "";
-                              if (index == _messages.length - 1) {
-                                showDateDivider = true;
-                                dateText = _formatDateDivider(msg['created_at']);
-                              } else {
-                                final prevMsg = _messages[index + 1];
-                                if (!_isSameDay(msg['created_at'], prevMsg['created_at'])) {
-                                  showDateDivider = true;
-                                  dateText = _formatDateDivider(msg['created_at']);
-                                }
-                              }
-
-                              final isSelected = _selectedMessageIds.contains(msgIdStr);
-
-                              final bubbleContent = _buildBubbleContent(
-                                msg,
-                                isMe,
-                                key: _messageKeys.putIfAbsent(msgIdStr, () => GlobalKey()),
-                                isHighlighted: isHighlighted,
-                              );
-
-                              final isMsgRecalled = msg['is_recall'] == 1 || msg['is_recall'] == true;
-
-                              final rawBubble = SwipeToReply(
-                                onReply: () {
-                                  if (!_isSelectionMode && !isMsgRecalled) {
-                                    setState(() {
-                                      _replyingToMessage = msg;
-                                    });
-                                  }
-                                },
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                                  alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-                                  child: bubbleContent,
-                                ),
-                              );
-
-                              final messageBubble = _isSelectionMode
-                                  ? InkWell(
-                                      onTap: () => _toggleMessageSelection(msgIdStr),
-                                      splashColor: Colors.transparent,
-                                      highlightColor: Colors.transparent,
-                                      child: Container(
-                                        color: isSelected
-                                            ? const Color(0xFF0F3460).withOpacity(0.12)
-                                            : Colors.transparent,
-                                        padding: const EdgeInsets.symmetric(vertical: 2),
-                                        child: Row(
-                                          crossAxisAlignment: CrossAxisAlignment.center,
-                                          children: [
-                                            Padding(
-                                              padding: const EdgeInsets.only(left: 12.0),
-                                              child: AnimatedContainer(
-                                                duration: const Duration(milliseconds: 180),
-                                                width: 22,
-                                                height: 22,
-                                                decoration: BoxDecoration(
-                                                  shape: BoxShape.circle,
-                                                  color: isSelected ? const Color(0xFF25D366) : Colors.transparent,
-                                                  border: Border.all(
-                                                    color: isSelected ? const Color(0xFF25D366) : Colors.grey.shade400,
-                                                    width: 2,
-                                                  ),
-                                                ),
-                                                child: isSelected
-                                                    ? const Icon(Icons.check, size: 15, color: Colors.white)
-                                                    : null,
-                                              ),
-                                            ),
-                                            Expanded(child: rawBubble),
-                                          ],
-                                        ),
-                                      ),
-                                    )
-                                  : rawBubble;
-
-                              if (showDateDivider) {
-                                return Column(
-                                  children: [
-                                    Container(
-                                      margin: const EdgeInsets.symmetric(vertical: 16),
-                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                                      decoration: BoxDecoration(
-                                        color: Colors.grey.shade300,
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                      child: Text(
-                                        dateText,
-                                        style: const TextStyle(fontSize: 12, color: Colors.black54),
-                                      ),
-                                    ),
-                                    messageBubble,
-                                  ],
-                                );
-                              }
-                              return messageBubble;
-                            },
+                ? Center(child: Text('Error: $_error'))
+                : _messages.isEmpty
+                ? const Center(
+                    child: Text('Belum ada pesan. Ketik pesan pertama Anda!'),
+                  )
+                : ListView.builder(
+                    controller: _scrollController,
+                    reverse: true,
+                    itemCount: _messages.length + (_isLoadingMore ? 1 : 0),
+                    itemBuilder: (context, index) {
+                      if (index == _messages.length) {
+                        return const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 16.0),
+                          child: Center(
+                            child: SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.5,
+                              ),
+                            ),
                           ),
+                        );
+                      }
+
+                      final msg = _messages[index];
+                      final isMe = msg['sender_id'].toString() == _myUserId;
+                      final msgIdStr = msg['id'].toString();
+                      final isHighlighted = _highlightedMessageId == msgIdStr;
+
+                      bool showDateDivider = false;
+                      String dateText = "";
+                      if (index == _messages.length - 1) {
+                        showDateDivider = true;
+                        dateText = _formatDateDivider(msg['created_at']);
+                      } else {
+                        final prevMsg = _messages[index + 1];
+                        if (!_isSameDay(
+                          msg['created_at'],
+                          prevMsg['created_at'],
+                        )) {
+                          showDateDivider = true;
+                          dateText = _formatDateDivider(msg['created_at']);
+                        }
+                      }
+
+                      final isSelected = _selectedMessageIds.contains(msgIdStr);
+
+                      final bubbleContent = _buildBubbleContent(
+                        msg,
+                        isMe,
+                        key: _messageKeys.putIfAbsent(
+                          msgIdStr,
+                          () => GlobalKey(),
+                        ),
+                        isHighlighted: isHighlighted,
+                      );
+
+                      final isMsgRecalled =
+                          msg['is_recall'] == 1 || msg['is_recall'] == true;
+
+                      final rawBubble = SwipeToReply(
+                        onReply: () {
+                          if (!_isSelectionMode && !isMsgRecalled) {
+                            setState(() {
+                              _replyingToMessage = msg;
+                            });
+                          }
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 4,
+                          ),
+                          alignment: isMe
+                              ? Alignment.centerRight
+                              : Alignment.centerLeft,
+                          child: bubbleContent,
+                        ),
+                      );
+
+                      final messageBubble = _isSelectionMode
+                          ? InkWell(
+                              onTap: () => _toggleMessageSelection(msgIdStr),
+                              splashColor: Colors.transparent,
+                              highlightColor: Colors.transparent,
+                              child: Container(
+                                color: isSelected
+                                    ? const Color(
+                                        0xFF0F3460,
+                                      ).withValues(alpha: 0.12)
+                                    : Colors.transparent,
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 2,
+                                ),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.center,
+                                  children: [
+                                    Padding(
+                                      padding: const EdgeInsets.only(
+                                        left: 12.0,
+                                      ),
+                                      child: AnimatedContainer(
+                                        duration: const Duration(
+                                          milliseconds: 180,
+                                        ),
+                                        width: 22,
+                                        height: 22,
+                                        decoration: BoxDecoration(
+                                          shape: BoxShape.circle,
+                                          color: isSelected
+                                              ? const Color(0xFF25D366)
+                                              : Colors.transparent,
+                                          border: Border.all(
+                                            color: isSelected
+                                                ? const Color(0xFF25D366)
+                                                : Colors.grey.shade400,
+                                            width: 2,
+                                          ),
+                                        ),
+                                        child: isSelected
+                                            ? const Icon(
+                                                Icons.check,
+                                                size: 15,
+                                                color: Colors.white,
+                                              )
+                                            : null,
+                                      ),
+                                    ),
+                                    Expanded(child: rawBubble),
+                                  ],
+                                ),
+                              ),
+                            )
+                          : rawBubble;
+
+                      if (showDateDivider) {
+                        return Column(
+                          children: [
+                            Container(
+                              margin: const EdgeInsets.symmetric(vertical: 16),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.grey.shade300,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                dateText,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.black54,
+                                ),
+                              ),
+                            ),
+                            messageBubble,
+                          ],
+                        );
+                      }
+                      return messageBubble;
+                    },
+                  ),
           ),
           // Input Area
           if (!_isSelectionMode)
             Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.grey.withOpacity(0.1),
-                  spreadRadius: 1,
-                  blurRadius: 3,
-                  offset: const Offset(0, -1),
-                ),
-              ],
-            ),
-            child: SafeArea(
-              child: !_canSendGroupMessage
-                  ? Container(
-                      width: double.infinity,
-                      margin: const EdgeInsets.symmetric(vertical: 4),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade100,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.grey.shade300),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.lock_outline_rounded, size: 18, color: Colors.grey.shade600),
-                          const SizedBox(width: 8),
-                          Flexible(
-                            child: Text(
-                              'Hanya admin yang dapat mengirim pesan ke grup ini',
-                              style: TextStyle(
-                                color: Colors.grey.shade700,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w500,
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.grey.withValues(alpha: 0.1),
+                    spreadRadius: 1,
+                    blurRadius: 3,
+                    offset: const Offset(0, -1),
+                  ),
+                ],
+              ),
+              child: SafeArea(
+                child: !_canSendGroupMessage
+                    ? Container(
+                        width: double.infinity,
+                        margin: const EdgeInsets.symmetric(vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.grey.shade300),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.lock_outline_rounded,
+                              size: 18,
+                              color: Colors.grey.shade600,
+                            ),
+                            const SizedBox(width: 8),
+                            Flexible(
+                              child: Text(
+                                'Hanya admin yang dapat mengirim pesan ke grup ini',
+                                style: TextStyle(
+                                  color: Colors.grey.shade700,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                                textAlign: TextAlign.center,
                               ),
-                              textAlign: TextAlign.center,
                             ),
-                          ),
-                        ],
-                      ),
-                    )
-                  : Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        _buildReplyBar(),
-                        if (_isRecording)
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                            decoration: BoxDecoration(
-                              color: Colors.red.shade50,
-                              borderRadius: BorderRadius.circular(24),
-                              border: Border.all(color: Colors.red.shade200),
-                            ),
-                            child: Row(
+                          ],
+                        ),
+                      )
+                    : Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _buildReplyBar(),
+                          if (_isRecording)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 6,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.red.shade50,
+                                borderRadius: BorderRadius.circular(24),
+                                border: Border.all(color: Colors.red.shade200),
+                              ),
+                              child: Row(
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(
+                                      Icons.delete_outline,
+                                      color: Colors.red,
+                                    ),
+                                    tooltip: 'Batalkan rekaman',
+                                    onPressed: _cancelRecording,
+                                  ),
+                                  Container(
+                                    width: 10,
+                                    height: 10,
+                                    decoration: const BoxDecoration(
+                                      color: Colors.red,
+                                      shape: BoxShape.circle,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    _formatRecordingDuration(
+                                      _recordingDuration,
+                                    ),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.red,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  const Expanded(
+                                    child: Text(
+                                      'Merekam audio...',
+                                      style: TextStyle(
+                                        color: Colors.black54,
+                                        fontSize: 13,
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(
+                                      Icons.pause_circle_filled,
+                                      color: Colors.red,
+                                      size: 30,
+                                    ),
+                                    tooltip: 'Jeda & Cek Suara',
+                                    onPressed: _pauseAndStopRecording,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  CircleAvatar(
+                                    backgroundColor: primaryColor,
+                                    radius: 18,
+                                    child: IconButton(
+                                      icon: const Icon(
+                                        Icons.send,
+                                        color: Colors.white,
+                                        size: 18,
+                                      ),
+                                      tooltip: 'Langsung Kirim',
+                                      onPressed: () =>
+                                          _toggleRecording(cancelOnly: false),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                          else if (_recordedAudioPath != null)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 6,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.grey.shade100,
+                                borderRadius: BorderRadius.circular(24),
+                                border: Border.all(color: Colors.grey.shade300),
+                              ),
+                              child: Row(
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(
+                                      Icons.delete_outline,
+                                      color: Colors.red,
+                                    ),
+                                    tooltip: 'Hapus Rekaman',
+                                    onPressed: _cancelAudioPreview,
+                                  ),
+                                  IconButton(
+                                    icon: Icon(
+                                      _isPreviewPlaying
+                                          ? Icons.pause_circle_filled
+                                          : Icons.play_circle_fill,
+                                      color: primaryColor,
+                                      size: 32,
+                                    ),
+                                    tooltip:
+                                        _isPreviewPlaying ? 'Jeda' : 'Dengarkan',
+                                    onPressed: _togglePreviewPlayPause,
+                                  ),
+                                  Text(
+                                    _formatRecordingDuration(
+                                      _previewPosition.inSeconds,
+                                    ),
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.grey.shade800,
+                                    ),
+                                  ),
+                                  Expanded(
+                                    child: SliderTheme(
+                                      data: SliderTheme.of(context).copyWith(
+                                        thumbShape: const RoundSliderThumbShape(
+                                          enabledThumbRadius: 6,
+                                        ),
+                                        trackHeight: 3,
+                                        activeTrackColor: primaryColor,
+                                        thumbColor: primaryColor,
+                                        inactiveTrackColor: Colors.grey.shade300,
+                                      ),
+                                      child: Slider(
+                                        value: _previewPosition.inMilliseconds
+                                            .toDouble()
+                                            .clamp(
+                                              0.0,
+                                              _previewTotalDuration
+                                                          .inMilliseconds >
+                                                      0
+                                                  ? _previewTotalDuration
+                                                      .inMilliseconds
+                                                      .toDouble()
+                                                  : (_recordedAudioDuration *
+                                                          1000)
+                                                      .toDouble()
+                                                      .clamp(
+                                                        1.0,
+                                                        double.infinity,
+                                                      ),
+                                            ),
+                                        max: _previewTotalDuration
+                                                    .inMilliseconds >
+                                                0
+                                            ? _previewTotalDuration
+                                                .inMilliseconds
+                                                .toDouble()
+                                            : (_recordedAudioDuration * 1000)
+                                                .toDouble()
+                                                .clamp(1.0, double.infinity),
+                                        onChanged: (val) {
+                                          _previewAudioPlayer.seek(
+                                            Duration(milliseconds: val.round()),
+                                          );
+                                        },
+                                      ),
+                                    ),
+                                  ),
+                                  Text(
+                                    _formatRecordingDuration(
+                                      _recordedAudioDuration,
+                                    ),
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey.shade600,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  CircleAvatar(
+                                    backgroundColor: primaryColor,
+                                    radius: 18,
+                                    child: IconButton(
+                                      icon: const Icon(
+                                        Icons.send,
+                                        color: Colors.white,
+                                        size: 18,
+                                      ),
+                                      tooltip: 'Kirim Voice Note',
+                                      onPressed: _sendReviewedAudio,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                          else
+                            Row(
                               children: [
                                 IconButton(
-                                  icon: const Icon(Icons.delete_outline, color: Colors.red),
-                                  tooltip: 'Batalkan rekaman',
-                                  onPressed: () => _toggleRecording(cancelOnly: true),
+                                  icon: const Icon(
+                                    Icons.attach_file,
+                                    color: Colors.grey,
+                                  ),
+                                  onPressed: _showAttachmentModal,
                                 ),
-                                Container(
-                                  width: 10,
-                                  height: 10,
-                                  decoration: const BoxDecoration(
-                                    color: Colors.red,
-                                    shape: BoxShape.circle,
+                                Expanded(
+                                  child: TextField(
+                                    controller: _messageController,
+                                    decoration: InputDecoration(
+                                      hintText: 'Ketik pesan...',
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(24),
+                                        borderSide: BorderSide.none,
+                                      ),
+                                      filled: true,
+                                      fillColor: Colors.grey.shade100,
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
+                                            horizontal: 16,
+                                            vertical: 10,
+                                          ),
+                                    ),
+                                    textInputAction: TextInputAction.send,
+                                    onSubmitted: (_) => _sendMessage(),
                                   ),
                                 ),
                                 const SizedBox(width: 8),
-                                Text(
-                                  _formatRecordingDuration(_recordingDuration),
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.red,
-                                    fontSize: 14,
+                                if (_isComposing)
+                                  CircleAvatar(
+                                    backgroundColor: primaryColor,
+                                    child: IconButton(
+                                      icon: const Icon(
+                                        Icons.send,
+                                        color: Colors.white,
+                                        size: 20,
+                                      ),
+                                      onPressed: _sendMessage,
+                                    ),
+                                  )
+                                else
+                                  GestureDetector(
+                                    onTap: () =>
+                                        _toggleRecording(cancelOnly: false),
+                                    child: const CircleAvatar(
+                                      backgroundColor: primaryColor,
+                                      child: Icon(
+                                        Icons.mic,
+                                        color: Colors.white,
+                                        size: 20,
+                                      ),
+                                    ),
                                   ),
-                                ),
-                                const SizedBox(width: 12),
-                                const Expanded(
-                                  child: Text(
-                                    'Merekam audio...',
-                                    style: TextStyle(color: Colors.black54, fontSize: 13),
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                                CircleAvatar(
-                                  backgroundColor: primaryColor,
-                                  radius: 18,
-                                  child: IconButton(
-                                    icon: const Icon(Icons.send, color: Colors.white, size: 18),
-                                    tooltip: 'Kirim Voice Note',
-                                    onPressed: () => _toggleRecording(cancelOnly: false),
-                                  ),
-                                ),
                               ],
                             ),
-                          )
-                        else
-                          Row(
-                            children: [
-                              IconButton(
-                                icon: const Icon(Icons.attach_file, color: Colors.grey),
-                                onPressed: _showAttachmentModal,
-                              ),
-                              Expanded(
-                                child: TextField(
-                                  controller: _messageController,
-                                  decoration: InputDecoration(
-                                    hintText: 'Ketik pesan...',
-                                    border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(24),
-                                      borderSide: BorderSide.none,
-                                    ),
-                                    filled: true,
-                                    fillColor: Colors.grey.shade100,
-                                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                                  ),
-                                  textInputAction: TextInputAction.send,
-                                  onSubmitted: (_) => _sendMessage(),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              if (_isComposing)
-                                CircleAvatar(
-                                  backgroundColor: primaryColor,
-                                  child: IconButton(
-                                    icon: const Icon(Icons.send, color: Colors.white, size: 20),
-                                    onPressed: _sendMessage,
-                                  ),
-                                )
-                              else
-                                GestureDetector(
-                                  onTap: () => _toggleRecording(cancelOnly: false),
-                                  child: const CircleAvatar(
-                                    backgroundColor: primaryColor,
-                                    child: Icon(
-                                      Icons.mic,
-                                      color: Colors.white,
-                                      size: 20,
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                      ],
-                    ),
+                        ],
+                      ),
+              ),
             ),
-          ),
         ],
       ),
     );
@@ -2996,15 +3571,16 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Widget _buildStatusIcon(Map<String, dynamic> msg) {
     if (msg['status'] == 'pending') {
-      return const Icon(
-        Icons.access_time,
-        size: 12,
-        color: Colors.white70,
-      );
+      return const Icon(Icons.access_time, size: 12, color: Colors.white70);
     }
 
-    final isRead = msg['is_read'] == 1 || msg['is_read'] == true || msg['read'] == true || msg['read'] == 1;
-    final isDelivered = msg['is_delivered'] == 1 || msg['is_delivered'] == true || isRead;
+    final isRead =
+        msg['is_read'] == 1 ||
+        msg['is_read'] == true ||
+        msg['read'] == true ||
+        msg['read'] == 1;
+    final isDelivered =
+        msg['is_delivered'] == 1 || msg['is_delivered'] == true || isRead;
 
     if (isRead) {
       return const Icon(
@@ -3013,17 +3589,9 @@ class _ChatScreenState extends State<ChatScreen> {
         color: Colors.lightBlueAccent,
       );
     } else if (isDelivered) {
-      return const Icon(
-        Icons.done_all,
-        size: 14,
-        color: Colors.white70,
-      );
+      return const Icon(Icons.done_all, size: 14, color: Colors.white70);
     } else {
-      return const Icon(
-        Icons.done,
-        size: 12,
-        color: Colors.white70,
-      );
+      return const Icon(Icons.done, size: 12, color: Colors.white70);
     }
   }
 
@@ -3041,14 +3609,19 @@ class _ChatScreenState extends State<ChatScreen> {
         final isDelivered = m['is_delivered'];
         if (isDelivered == 0 || isDelivered == false || isDelivered == null) {
           final rawId = m['id'];
-          final id = rawId is int ? rawId : int.tryParse(rawId?.toString() ?? '');
+          final id = rawId is int
+              ? rawId
+              : int.tryParse(rawId?.toString() ?? '');
           if (id != null) undeliveredIds.add(id);
         }
       }
     }
 
     if (undeliveredIds.isNotEmpty) {
-      ApiService.markMessagesAsDelivered(widget.roomId, messageIds: undeliveredIds);
+      ApiService.markMessagesAsDelivered(
+        widget.roomId,
+        messageIds: undeliveredIds,
+      );
 
       if (_socket != null && _socket!.connected && currentUserId != null) {
         _socket!.emit('message:delivered', {
@@ -3061,25 +3634,28 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 }
 
-
 class SwipeToReply extends StatefulWidget {
   final Widget child;
   final VoidCallback onReply;
 
-  const SwipeToReply({Key? key, required this.child, required this.onReply}) : super(key: key);
+  const SwipeToReply({super.key, required this.child, required this.onReply});
 
   @override
   _SwipeToReplyState createState() => _SwipeToReplyState();
 }
 
-class _SwipeToReplyState extends State<SwipeToReply> with SingleTickerProviderStateMixin {
+class _SwipeToReplyState extends State<SwipeToReply>
+    with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   double _dragExtent = 0.0;
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 200));
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 200),
+    );
     _controller.addListener(() {
       setState(() {
         _dragExtent = _controller.value * _dragExtent;

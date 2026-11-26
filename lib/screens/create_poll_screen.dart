@@ -4,10 +4,7 @@ import '../services/api_service.dart';
 class CreatePollScreen extends StatefulWidget {
   final String groupId;
 
-  const CreatePollScreen({
-    super.key,
-    required this.groupId,
-  });
+  const CreatePollScreen({super.key, required this.groupId});
 
   @override
   State<CreatePollScreen> createState() => _CreatePollScreenState();
@@ -81,7 +78,10 @@ class _CreatePollScreenState extends State<CreatePollScreen> {
   bool get _isValid {
     final q = _questionController.text.trim();
     if (q.isEmpty) return false;
-    final validOptions = _optionControllers.map((c) => c.text.trim()).where((t) => t.isNotEmpty).toList();
+    final validOptions = _optionControllers
+        .map((c) => c.text.trim())
+        .where((t) => t.isNotEmpty)
+        .toList();
     return validOptions.length >= 2;
   }
 
@@ -89,7 +89,10 @@ class _CreatePollScreenState extends State<CreatePollScreen> {
     if (!_isValid || _isLoading) return;
 
     final q = _questionController.text.trim();
-    final validOptions = _optionControllers.map((c) => c.text.trim()).where((t) => t.isNotEmpty).toList();
+    final validOptions = _optionControllers
+        .map((c) => c.text.trim())
+        .where((t) => t.isNotEmpty)
+        .toList();
 
     setState(() => _isLoading = true);
 
@@ -124,7 +127,10 @@ class _CreatePollScreenState extends State<CreatePollScreen> {
         backgroundColor: _primaryColor,
         foregroundColor: Colors.white,
         elevation: 0,
-        title: const Text('Buat Polling', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+        title: const Text(
+          'Buat Polling',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+        ),
         actions: [
           if (_isLoading)
             const Center(
@@ -133,7 +139,10 @@ class _CreatePollScreenState extends State<CreatePollScreen> {
                 child: SizedBox(
                   width: 20,
                   height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
                 ),
               ),
             )
@@ -141,7 +150,10 @@ class _CreatePollScreenState extends State<CreatePollScreen> {
             TextButton.icon(
               onPressed: _isValid ? _submitPoll : null,
               icon: const Icon(Icons.send_rounded, size: 18),
-              label: const Text('Kirim', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+              label: const Text(
+                'Kirim',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+              ),
               style: TextButton.styleFrom(
                 foregroundColor: Colors.white,
                 disabledForegroundColor: Colors.white38,
@@ -174,7 +186,10 @@ class _CreatePollScreenState extends State<CreatePollScreen> {
               hintStyle: TextStyle(color: Colors.grey.shade400),
               filled: true,
               fillColor: const Color(0xFFF7F9FC),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 14,
+                vertical: 12,
+              ),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
                 borderSide: BorderSide(color: Colors.grey.shade300),
@@ -226,21 +241,42 @@ class _CreatePollScreenState extends State<CreatePollScreen> {
                       controller: _optionControllers[index],
                       focusNode: _focusNodes[index],
                       maxLength: 100,
-                      buildCounter: (context, {required currentLength, required isFocused, maxLength}) => null,
-                      style: const TextStyle(fontSize: 14, color: Colors.black87),
+                      buildCounter:
+                          (
+                            context, {
+                            required currentLength,
+                            required isFocused,
+                            maxLength,
+                          }) => null,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: Colors.black87,
+                      ),
                       decoration: InputDecoration(
-                        hintText: isLast ? '+ Tambah opsi' : 'Opsi ${index + 1}',
-                        hintStyle: TextStyle(color: isLast ? _primaryColor.withOpacity(0.6) : Colors.grey.shade400),
+                        hintText: isLast
+                            ? '+ Tambah opsi'
+                            : 'Opsi ${index + 1}',
+                        hintStyle: TextStyle(
+                          color: isLast
+                              ? _primaryColor.withValues(alpha: 0.6)
+                              : Colors.grey.shade400,
+                        ),
                         filled: true,
                         fillColor: const Color(0xFFF7F9FC),
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 12,
+                        ),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10),
                           borderSide: BorderSide(color: Colors.grey.shade300),
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10),
-                          borderSide: const BorderSide(color: _primaryColor, width: 2),
+                          borderSide: const BorderSide(
+                            color: _primaryColor,
+                            width: 2,
+                          ),
                         ),
                       ),
                     ),
@@ -248,7 +284,11 @@ class _CreatePollScreenState extends State<CreatePollScreen> {
                   if (canDelete) ...[
                     const SizedBox(width: 4),
                     IconButton(
-                      icon: const Icon(Icons.close_rounded, color: Colors.grey, size: 20),
+                      icon: const Icon(
+                        Icons.close_rounded,
+                        color: Colors.grey,
+                        size: 20,
+                      ),
                       tooltip: 'Hapus Opsi',
                       onPressed: () => _removeOption(index),
                     ),
@@ -270,11 +310,18 @@ class _CreatePollScreenState extends State<CreatePollScreen> {
               border: Border.all(color: Colors.grey.shade200),
             ),
             child: SwitchListTile(
-              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-              activeColor: _primaryColor,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 14,
+                vertical: 4,
+              ),
+              activeThumbColor: _primaryColor,
               title: const Text(
                 'Izinkan beberapa jawaban',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.black87),
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                  color: Colors.black87,
+                ),
               ),
               subtitle: Text(
                 _multipleAnswers

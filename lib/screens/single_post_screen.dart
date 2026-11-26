@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import '../models/post_model.dart';
+import '../models/media_view_settings.dart';
+import '../widgets/media_video_player.dart';
+import '../widgets/post_audio_player.dart';
+import '../widgets/post_poll_card.dart';
 import 'package:share_plus/share_plus.dart';
 import 'user_profile_screen.dart';
 import 'media_profile_screen.dart';
@@ -20,6 +24,7 @@ class _SinglePostScreenState extends State<SinglePostScreen> {
   PostModel? _post;
   bool _isLoading = true;
   String? _myUserId;
+  MediaViewSettings _viewConfig = MediaViewSettings.defaults;
   
   final TextEditingController _commentController = TextEditingController();
   List<dynamic> _comments = [];
@@ -30,8 +35,19 @@ class _SinglePostScreenState extends State<SinglePostScreen> {
   void initState() {
     super.initState();
     _loadMyUserId();
+    _loadViewSettings();
     _fetchPost();
     _fetchComments();
+  }
+
+  Future<void> _loadViewSettings() async {
+    final local = await MediaViewSettings.loadLocal();
+    if (mounted) setState(() => _viewConfig = local);
+    final res = await ApiService.getVideoViewSettings();
+    if (res['success'] == true && res['viewConfig'] is Map && mounted) {
+      final cfg = MediaViewSettings.fromJson(Map<String, dynamic>.from(res['viewConfig'] as Map));
+      setState(() => _viewConfig = cfg);
+    }
   }
 
   Future<void> _loadMyUserId() async {
@@ -246,6 +262,19 @@ class _SinglePostScreenState extends State<SinglePostScreen> {
                                           const SizedBox(height: 4),
                                           MentionParser.buildText(context, _post!.caption, style: const TextStyle(fontSize: 15), myUserId: _myUserId),
                                         ],
+                                        if (_post!.poll != null) ...[
+                                          PostPollCard(
+                                            postId: _post!.id,
+                                            initialPoll: _post!.poll!,
+                                          ),
+                                        ],
+                                        if (_post!.mediaUrl != null && _post!.mediaType == 'audio') ...[
+                                          const SizedBox(height: 10),
+                                          PostAudioPlayer(
+                                            audioUrl: ApiService.getServerUrl(_post!.mediaUrl!),
+                                            title: _post!.caption.isNotEmpty ? _post!.caption : 'Musik / Audio',
+                                          ),
+                                        ],
                                         if (_post!.mediaUrl != null && _post!.mediaType == 'image') ...[
                                           const SizedBox(height: 10),
                                           ClipRRect(
@@ -256,6 +285,14 @@ class _SinglePostScreenState extends State<SinglePostScreen> {
                                               width: double.infinity,
                                               height: 250,
                                             ),
+                                          ),
+                                        ],
+                                        if (_post!.mediaUrl != null && _post!.mediaType == 'video') ...[
+                                          const SizedBox(height: 10),
+                                          MediaVideoPlayer(
+                                            post: _post!,
+                                            viewConfig: _viewConfig,
+                                            shouldRender: true,
                                           ),
                                         ],
                                         const SizedBox(height: 12),

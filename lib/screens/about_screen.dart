@@ -47,11 +47,20 @@ class AboutScreen extends StatelessWidget {
                         ),
                       ],
                     ),
-                    child: const Center(
-                      child: Icon(
-                        Icons.chat_bubble_outline,
-                        size: 50,
-                        color: primaryColor,
+                    child: Center(
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(16),
+                        child: Image.asset(
+                          'assets/images/app_logo.png',
+                          width: 64,
+                          height: 64,
+                          fit: BoxFit.contain,
+                          errorBuilder: (_, __, ___) => const Icon(
+                            Icons.chat_bubble_outline,
+                            size: 50,
+                            color: primaryColor,
+                          ),
+                        ),
                       ),
                     ),
                   ),
@@ -66,7 +75,7 @@ class AboutScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 5),
                   Text(
-                    'Versi 0.1.0+1',
+                    'Versi 1.1.03',
                     style: TextStyle(
                       fontSize: 16,
                       color: Colors.white70,

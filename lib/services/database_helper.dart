@@ -29,7 +29,7 @@ class DatabaseHelper {
     final path = await _getDbPath();
     return await openDatabase(
       path,
-      version: 6, // Bumped version to 6 for local_room_id
+      version: 7, // Bumped version to 7 for story_privacy tables
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -47,6 +47,7 @@ class DatabaseHelper {
     ''');
     await _createCallHistoryTable(db);
     await _createPinnedChatsTable(db);
+    await _createStoryPrivacyTables(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -64,6 +65,9 @@ class DatabaseHelper {
     }
     if (oldVersion < 6) {
       await db.execute('ALTER TABLE contacts ADD COLUMN local_room_id TEXT');
+    }
+    if (oldVersion < 7) {
+      await _createStoryPrivacyTables(db);
     }
   }
 
@@ -86,6 +90,22 @@ class DatabaseHelper {
       CREATE TABLE pinned_chats (
         id TEXT PRIMARY KEY,
         pinned_at INTEGER NOT NULL
+      )
+    ''');
+  }
+
+  Future<void> _createStoryPrivacyTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS story_privacy_contacts (
+        category TEXT NOT NULL,
+        phone_number TEXT NOT NULL,
+        PRIMARY KEY (category, phone_number)
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS story_privacy_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
       )
     ''');
   }
@@ -220,5 +240,85 @@ class DatabaseHelper {
   Future<List<Map<String, dynamic>>> getPinnedChats() async {
     final db = await database;
     return await db.query('pinned_chats', orderBy: 'pinned_at DESC');
+  }
+
+  // --- Story Privacy Methods ---
+
+  Future<void> saveStoryPrivacyType(String type) async {
+    final db = await database;
+    await db.insert(
+      'story_privacy_settings',
+      {'key': 'privacy_type', 'value': type},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<String> getStoryPrivacyType() async {
+    final db = await database;
+    final results = await db.query(
+      'story_privacy_settings',
+      where: 'key = ?',
+      whereArgs: ['privacy_type'],
+      limit: 1,
+    );
+    if (results.isNotEmpty) {
+      return (results.first['value'] ?? 'kontak_saya').toString();
+    }
+    return 'kontak_saya';
+  }
+
+  Future<void> saveStoryPrivacyCategory(String category, List<String> phones) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await txn.delete(
+        'story_privacy_contacts',
+        where: 'category = ?',
+        whereArgs: [category],
+      );
+      final batch = txn.batch();
+      for (final phone in phones) {
+        final p = phone.trim();
+        if (p.isNotEmpty) {
+          batch.insert(
+            'story_privacy_contacts',
+            {'category': category, 'phone_number': p},
+            conflictAlgorithm: ConflictAlgorithm.ignore,
+          );
+        }
+      }
+      await batch.commit(noResult: true);
+    });
+  }
+
+  Future<List<String>> getStoryPrivacyCategory(String category) async {
+    final db = await database;
+    final results = await db.query(
+      'story_privacy_contacts',
+      columns: ['phone_number'],
+      where: 'category = ?',
+      whereArgs: [category],
+    );
+    return results
+        .map((row) => (row['phone_number'] ?? '').toString())
+        .where((s) => s.isNotEmpty)
+        .toList();
+  }
+
+  Future<Map<String, List<String>>> getAllStoryPrivacyContacts() async {
+    final db = await database;
+    final results = await db.query('story_privacy_contacts');
+    final Map<String, List<String>> map = {
+      'kecuali': [],
+      'hanya_bagikan': [],
+      'teman_dekat': [],
+    };
+    for (final row in results) {
+      final cat = (row['category'] ?? '').toString();
+      final phone = (row['phone_number'] ?? '').toString();
+      if (phone.isNotEmpty && map.containsKey(cat)) {
+        map[cat]!.add(phone);
+      }
+    }
+    return map;
   }
 }

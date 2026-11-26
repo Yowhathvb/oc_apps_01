@@ -94,7 +94,8 @@ class _PollVotesScreenState extends State<PollVotesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final question = _pollData?['question'] ?? widget.initialQuestion ?? 'Polling';
+    final question =
+        _pollData?['question'] ?? widget.initialQuestion ?? 'Polling';
     final totalVoters = _pollData?['total_voters'] ?? 0;
     final List options = _pollData?['options'] as List? ?? [];
 
@@ -104,172 +105,227 @@ class _PollVotesScreenState extends State<PollVotesScreen> {
         backgroundColor: _primaryColor,
         foregroundColor: Colors.white,
         elevation: 0,
-        title: const Text('Detail Suara', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+        title: const Text(
+          'Detail Suara',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+        ),
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? Center(
+          ? Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(_error!, style: const TextStyle(color: Colors.red)),
+                  const SizedBox(height: 12),
+                  ElevatedButton(
+                    onPressed: _loadContactsAndDetails,
+                    child: const Text('Coba Lagi'),
+                  ),
+                ],
+              ),
+            )
+          : ListView(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+              children: [
+                // Header Pertanyaan
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.grey.shade200),
+                  ),
                   child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(_error!, style: const TextStyle(color: Colors.red)),
-                      const SizedBox(height: 12),
-                      ElevatedButton(
-                        onPressed: _loadContactsAndDetails,
-                        child: const Text('Coba Lagi'),
+                      Text(
+                        question,
+                        style: const TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.bold,
+                          color: _primaryColor,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        '$totalVoters orang telah memilih',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.grey.shade600,
+                        ),
                       ),
                     ],
                   ),
-                )
-              : ListView(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                  children: [
-                    // Header Pertanyaan
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.grey.shade200),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            question,
-                            style: const TextStyle(
-                              fontSize: 17,
-                              fontWeight: FontWeight.bold,
-                              color: _primaryColor,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            '$totalVoters orang telah memilih',
-                            style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Opsi & Pemilih
-                    ...options.map((opt) {
-                      final String optText = opt['text']?.toString() ?? opt['option_text']?.toString() ?? '';
-                      final int voteCount = (opt['vote_count'] is int) 
-                          ? opt['vote_count'] 
-                          : int.tryParse(opt['vote_count']?.toString() ?? '0') ?? 0;
-                      final List voters = opt['voters'] as List? ?? [];
-
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 16),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.grey.shade200),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // Option Title Header
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                              decoration: BoxDecoration(
-                                color: _primaryColor.withOpacity(0.05),
-                                borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
-                              ),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      optText,
-                                      style: const TextStyle(
-                                        fontSize: 15,
-                                        fontWeight: FontWeight.bold,
-                                        color: _primaryColor,
-                                      ),
-                                    ),
-                                  ),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                    decoration: BoxDecoration(
-                                      color: _primaryColor,
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    child: Text(
-                                      '$voteCount suara',
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-
-                            // List of voters
-                            if (voters.isEmpty)
-                              Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                                child: Text(
-                                  'Belum ada suara untuk opsi ini',
-                                  style: TextStyle(color: Colors.grey.shade500, fontSize: 13, fontStyle: FontStyle.italic),
-                                ),
-                              )
-                            else
-                              ListView.separated(
-                                shrinkWrap: true,
-                                physics: const NeverScrollableScrollPhysics(),
-                                itemCount: voters.length,
-                                separatorBuilder: (context, index) => Divider(height: 1, indent: 64, color: Colors.grey.shade100),
-                                itemBuilder: (ctx, i) {
-                                  final v = voters[i];
-                                  final rawPhone = v['phone']?.toString() ?? '';
-                                  final normPhone = _normalizePhone(rawPhone);
-                                  final localName = _contactMap[normPhone];
-                                  final String voterName = (localName != null && localName.trim().isNotEmpty)
-                                      ? localName.trim()
-                                      : (v['name'] ?? normPhone);
-                                  final pic = v['profile_pic']?.toString();
-                                  final timeStr = _formatVotedTime(v['voted_at']?.toString());
-
-                                  return ListTile(
-                                    leading: CircleAvatar(
-                                      radius: 18,
-                                      backgroundColor: Colors.blue.shade100,
-                                      backgroundImage: (pic != null && pic.isNotEmpty)
-                                          ? CachedNetworkImageProvider(ApiService.getServerUrl(pic))
-                                          : null,
-                                      child: (pic == null || pic.isEmpty)
-                                          ? Text(
-                                              voterName.isNotEmpty ? voterName[0].toUpperCase() : '?',
-                                              style: const TextStyle(color: _primaryColor, fontWeight: FontWeight.bold),
-                                            )
-                                          : null,
-                                    ),
-                                    title: Text(
-                                      voterName,
-                                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-                                    ),
-                                    subtitle: normPhone.isNotEmpty
-                                        ? Text(normPhone, style: TextStyle(fontSize: 12, color: Colors.grey.shade600))
-                                        : null,
-                                    trailing: timeStr.isNotEmpty
-                                        ? Text(timeStr, style: TextStyle(fontSize: 11, color: Colors.grey.shade500))
-                                        : null,
-                                  );
-                                },
-                              ),
-                          ],
-                        ),
-                      );
-                    }),
-                  ],
                 ),
+                const SizedBox(height: 16),
+
+                // Opsi & Pemilih
+                ...options.map((opt) {
+                  final String optText =
+                      opt['text']?.toString() ??
+                      opt['option_text']?.toString() ??
+                      '';
+                  final int voteCount = (opt['vote_count'] is int)
+                      ? opt['vote_count']
+                      : int.tryParse(opt['vote_count']?.toString() ?? '0') ?? 0;
+                  final List voters = opt['voters'] as List? ?? [];
+
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 16),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.grey.shade200),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Option Title Header
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 12,
+                          ),
+                          decoration: BoxDecoration(
+                            color: _primaryColor.withValues(alpha: 0.05),
+                            borderRadius: const BorderRadius.vertical(
+                              top: Radius.circular(12),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  optText,
+                                  style: const TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.bold,
+                                    color: _primaryColor,
+                                  ),
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 3,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: _primaryColor,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Text(
+                                  '$voteCount suara',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        // List of voters
+                        if (voters.isEmpty)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 14,
+                            ),
+                            child: Text(
+                              'Belum ada suara untuk opsi ini',
+                              style: TextStyle(
+                                color: Colors.grey.shade500,
+                                fontSize: 13,
+                                fontStyle: FontStyle.italic,
+                              ),
+                            ),
+                          )
+                        else
+                          ListView.separated(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            itemCount: voters.length,
+                            separatorBuilder: (context, index) => Divider(
+                              height: 1,
+                              indent: 64,
+                              color: Colors.grey.shade100,
+                            ),
+                            itemBuilder: (ctx, i) {
+                              final v = voters[i];
+                              final rawPhone = v['phone']?.toString() ?? '';
+                              final normPhone = _normalizePhone(rawPhone);
+                              final localName = _contactMap[normPhone];
+                              final String voterName =
+                                  (localName != null &&
+                                      localName.trim().isNotEmpty)
+                                  ? localName.trim()
+                                  : (v['name'] ?? normPhone);
+                              final pic = v['profile_pic']?.toString();
+                              final timeStr = _formatVotedTime(
+                                v['voted_at']?.toString(),
+                              );
+
+                              return ListTile(
+                                leading: CircleAvatar(
+                                  radius: 18,
+                                  backgroundColor: Colors.blue.shade100,
+                                  backgroundImage:
+                                      (pic != null && pic.isNotEmpty)
+                                      ? CachedNetworkImageProvider(
+                                          ApiService.getServerUrl(pic),
+                                        )
+                                      : null,
+                                  child: (pic == null || pic.isEmpty)
+                                      ? Text(
+                                          voterName.isNotEmpty
+                                              ? voterName[0].toUpperCase()
+                                              : '?',
+                                          style: const TextStyle(
+                                            color: _primaryColor,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        )
+                                      : null,
+                                ),
+                                title: Text(
+                                  voterName,
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                subtitle: normPhone.isNotEmpty
+                                    ? Text(
+                                        normPhone,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey.shade600,
+                                        ),
+                                      )
+                                    : null,
+                                trailing: timeStr.isNotEmpty
+                                    ? Text(
+                                        timeStr,
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: Colors.grey.shade500,
+                                        ),
+                                      )
+                                    : null,
+                              );
+                            },
+                          ),
+                      ],
+                    ),
+                  );
+                }),
+              ],
+            ),
     );
   }
 }

@@ -17,16 +17,35 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> {
   int _currentIndex = 0;
   late final PageController _pageController;
+  final ValueNotifier<bool> _isMediaActiveNotifier = ValueNotifier<bool>(false);
+  bool _isReelsFullscreen = false;
+  late final List<Widget> _pages;
 
   @override
   void initState() {
     super.initState();
     _pageController = PageController(initialPage: _currentIndex);
+    _pages = [
+      const ChatListScreen(), // Halaman Chat
+      const CallHistoryScreen(), // Halaman Riwayat Panggilan
+      const StoryScreen(), // Halaman Status (Story)
+      MediaScreen(
+        isPageVisibleListenable: _isMediaActiveNotifier,
+        onReelsFullscreenChanged: (isFullscreen) {
+          if (mounted && _isReelsFullscreen != isFullscreen) {
+            setState(() => _isReelsFullscreen = isFullscreen);
+          }
+        },
+      ), // Halaman Media (Feed & Reels)
+      const MarketplaceHomeScreen(), // Marketplace Utama
+      const MoreScreen(), // Halaman Lainnya
+    ];
     _requestPermissions();
   }
 
   @override
   void dispose() {
+    _isMediaActiveNotifier.dispose();
     _pageController.dispose();
     super.dispose();
   }
@@ -37,32 +56,28 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
-  final List<Widget> _pages = [
-    const ChatListScreen(), // Halaman Chat
-    const CallHistoryScreen(), // Halaman Riwayat Panggilan
-    const StoryScreen(), // Halaman Status (Story)
-    const MediaScreen(), // Halaman Media (Threads-like)
-    const MarketplaceHomeScreen(), // Marketplace Utama
-    const MoreScreen(), // Halaman Lainnya
-  ];
-
   @override
   Widget build(BuildContext context) {
     const primaryColor = Color(0xFF0F3460);
+    final hideBottomNav = _currentIndex == 3 && _isReelsFullscreen;
 
     return Scaffold(
       body: PageView(
         controller: _pageController,
         onPageChanged: (index) {
+          _isMediaActiveNotifier.value = index == 3;
           setState(() {
             _currentIndex = index;
           });
         },
         children: _pages,
       ),
-      bottomNavigationBar: BottomNavigationBar(
+      bottomNavigationBar: hideBottomNav
+          ? null
+          : BottomNavigationBar(
         currentIndex: _currentIndex,
         onTap: (index) {
+          _isMediaActiveNotifier.value = index == 3;
           setState(() {
             _currentIndex = index;
           });
@@ -83,12 +98,11 @@ class _MainScreenState extends State<MainScreen> {
             icon: Icon(Icons.chat_bubble),
             label: 'Chats',
           ),
+          BottomNavigationBarItem(icon: Icon(Icons.call), label: 'Calls'),
           BottomNavigationBarItem(
-            icon: Icon(Icons.call),
-            label: 'Calls',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.camera_rounded), // Atau icons.data_usage untuk status
+            icon: Icon(
+              Icons.camera_rounded,
+            ), // Atau icons.data_usage untuk status
             label: 'Status',
           ),
           BottomNavigationBarItem(

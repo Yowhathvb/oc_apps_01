@@ -9,6 +9,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'store_dashboard_screen.dart';
 import '../services/api_service.dart';
 import 'about_screen.dart';
+import 'our_pay_screen.dart';
 import 'profile_screen.dart';
 
 class MoreScreen extends StatefulWidget {
@@ -232,7 +233,7 @@ class _MoreScreenState extends State<MoreScreen> {
                       ),
                     ),
                   ),
-                  _buildMenuItem(Icons.apps, 'Mini Apps', 'Akses aplikasi tambahan', iconColor: Colors.blue),
+                  _buildMenuItem(Icons.apps, 'Mini Program', 'Akses aplikasi tambahan', iconColor: Colors.blue),
                   _buildMenuItem(
                     Icons.storefront, 
                     'Admin Marketplace', 
@@ -242,7 +243,15 @@ class _MoreScreenState extends State<MoreScreen> {
                       Navigator.push(context, MaterialPageRoute(builder: (context) => const StoreDashboardScreen()));
                     },
                   ),
-                  _buildMenuItem(Icons.payment, 'Our Pay', 'Ringkasan keuangan', iconColor: Colors.green),
+                  _buildMenuItem(
+                    Icons.payment, 
+                    'Our Pay', 
+                    'Ringkasan keuangan & pembayaran', 
+                    iconColor: Colors.green,
+                    onTap: () {
+                      Navigator.push(context, MaterialPageRoute(builder: (context) => const OurPayScreen()));
+                    },
+                  ),
 
                   // Menu Umum
                   const Padding(
@@ -277,9 +286,30 @@ class _MoreScreenState extends State<MoreScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         SwitchListTile(
-                          secondary: const Icon(Icons.notifications, size: 28, color: Colors.black54),
+                          secondary: Container(
+                            padding: const EdgeInsets.all(7),
+                            decoration: BoxDecoration(
+                              color: _isNotificationEnabled 
+                                  ? const Color(0xFFFEF3C7) 
+                                  : const Color(0xFFEFF6FF),
+                              borderRadius: BorderRadius.circular(5),
+                            ),
+                            child: Icon(
+                              _isNotificationEnabled ? Icons.notifications_active : Icons.notifications_active_outlined,
+                              size: 24,
+                              color: _isNotificationEnabled ? const Color(0xFFD97706) : const Color(0xFF2563EB),
+                            ),
+                          ),
                           title: const Text('Notifikasi Push', style: TextStyle(fontWeight: FontWeight.bold)),
-                          subtitle: const Text('Aktifkan notifikasi untuk aplikasi', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                          subtitle: Text(
+                            _isNotificationEnabled 
+                                ? 'Fitur siap & aktif menerima pesan & panggilan' 
+                                : 'Aktifkan notifikasi untuk aplikasi',
+                            style: TextStyle(
+                              fontSize: 12, 
+                              color: _isNotificationEnabled ? const Color(0xFF059669) : Colors.grey,
+                            ),
+                          ),
                           value: _isNotificationEnabled,
                           activeThumbColor: primaryColor,
                           onChanged: (bool value) async {
@@ -359,7 +389,6 @@ class _MoreScreenState extends State<MoreScreen> {
                   ),
 
                   _buildMenuItem(Icons.help_outline, 'Bantuan', 'FAQ dan dukungan', iconColor: Colors.black54),
-                  _buildMenuItem(Icons.info_outline, 'Tentang Aplikasi', 'Versi dan informasi', iconColor: Colors.black54),
 
                   const SizedBox(height: 20),
                   

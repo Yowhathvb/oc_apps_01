@@ -154,7 +154,47 @@ class CallManager extends ChangeNotifier {
       _endLocalCall();
     });
 
+    _socket?.on('call:cancelled', (_) {
+      debugPrint('[CallManager] Call cancelled by caller');
+      _endLocalCall();
+    });
+
+    _socket?.on('call:missed', (_) {
+      debugPrint('[CallManager] Call missed / timeout');
+      _endLocalCall();
+    });
+
     _socket?.connect();
+
+    // Auto-clean ghost/stale call saat aplikasi baru dibuka setelah force-close
+    _checkActiveCallOnStartup(currentUserId);
+  }
+
+  Future<void> _checkActiveCallOnStartup(String? currentUserId) async {
+    try {
+      final res = await ApiService.getActiveCall();
+      if (res['success'] == true && res['data'] != null && res['data']['call'] != null) {
+        final call = res['data']['call'];
+        final callId = call['id'].toString();
+        final callerId = (call['caller_id'] ?? call['callerId'])?.toString();
+        final status = call['status']?.toString();
+
+        // Jika user adalah caller tapi app baru saja dibuka (kondisi idle),
+        // artinya user baru saja force-close app saat memanggil -> bersihkan sesi lama di server!
+        if (callerId == currentUserId && state == CallState.idle) {
+          debugPrint('[CallManager] Auto-ending ghost call on startup: $callId');
+          await ApiService.endCall(callId);
+        } else if (status == 'ringing' && state == CallState.idle) {
+          final callerName = call['caller_name'] ?? call['callerName'] ?? 'Panggilan Masuk';
+          final callerPhone = call['caller_phone'] ?? call['callerPhone'] ?? '';
+          final isVideo = call['type'] == 'video';
+          final groupId = call['group_id'] ?? call['groupId'];
+          handleIncomingCall(callId, callerName, callerPhone, isVideo, groupId: groupId?.toString());
+        }
+      }
+    } catch (e) {
+      debugPrint('[CallManager] Error checkActiveCallOnStartup: $e');
+    }
   }
 
 

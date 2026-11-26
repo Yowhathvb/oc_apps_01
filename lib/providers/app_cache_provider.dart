@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import '../services/database_helper.dart';
+import '../services/encryption_service.dart';
 import '../models/story_model.dart';
 
 class AppCacheProvider extends ChangeNotifier {
@@ -61,7 +62,7 @@ class AppCacheProvider extends ChangeNotifier {
           'phone': '',
           'isGroup': true,
           'is_saved': false,
-          'last_message': room['last_message'] ?? '',
+          'last_message': EncryptionService.decryptMessage(room['last_message']?.toString() ?? ''),
           'last_message_time': room['last_message_time'],
           'profile_picture': '',
         });
@@ -97,7 +98,7 @@ class AppCacheProvider extends ChangeNotifier {
           'phone': otherPhone,
           'isGroup': false,
           'is_saved': isSaved,
-          'last_message': room['last_message'] ?? '',
+          'last_message': EncryptionService.decryptMessage(room['last_message']?.toString() ?? ''),
           'last_message_time': room['last_message_time'],
           'profile_picture': room['other_user_profile_picture'] ?? '',
         });

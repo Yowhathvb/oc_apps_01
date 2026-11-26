@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import '../services/api_service.dart';
 import '../services/database_helper.dart';
+import '../services/encryption_service.dart';
 import 'chat_screen.dart';
 import 'add_contact_screen.dart';
 import 'create_group_screen.dart';
@@ -24,7 +25,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
   String? _myUserId;
   io.Socket? _socket;
   String _searchQuery = '';
-  Set<String> _selectedChats = {};
+  final Set<String> _selectedChats = {};
 
   void _toggleSelection(String id) {
     setState(() {
@@ -137,8 +138,14 @@ class _ChatListScreenState extends State<ChatListScreen> {
         final unreadCount = room['unread_count'] ?? 0;
 
         // Jika ada pesan dari lawan bicara yang belum delivered, tandai sebagai delivered
-        if (roomId != null && _myUserId != null && lastSender != null && lastSender != _myUserId) {
-          if (isDelivered == 0 || isDelivered == false || isDelivered == null || unreadCount > 0) {
+        if (roomId != null &&
+            _myUserId != null &&
+            lastSender != null &&
+            lastSender != _myUserId) {
+          if (isDelivered == 0 ||
+              isDelivered == false ||
+              isDelivered == null ||
+              unreadCount > 0) {
             ApiService.markMessagesAsDelivered(roomId);
             if (_socket != null && _socket!.connected) {
               _socket!.emit('message:delivered', {
@@ -170,12 +177,20 @@ class _ChatListScreenState extends State<ChatListScreen> {
           isSaved = true;
         }
 
-        final isRead = room['last_message_is_read'] == 1 || room['last_message_is_read'] == true || room['last_message_read'] == true;
+        final isRead =
+            room['last_message_is_read'] == 1 ||
+            room['last_message_is_read'] == true ||
+            room['last_message_read'] == true;
+
+        final rawLastMessage = room['last_message']?.toString() ?? '';
+        final displayLastMessage = rawLastMessage.isNotEmpty
+            ? EncryptionService.decryptMessage(rawLastMessage)
+            : 'Belum ada pesan';
 
         combinedList.add({
           'phone': phone,
           'display_name': displayName,
-          'last_message': room['last_message'] ?? 'Belum ada pesan',
+          'last_message': displayLastMessage,
           'last_message_time': room['last_message_time'],
           'last_message_sender_id': lastSender,
           'last_message_is_delivered': isDelivered,
@@ -183,7 +198,10 @@ class _ChatListScreenState extends State<ChatListScreen> {
           'unread_count': unreadCount,
           'room_id': room['id'].toString(),
           'is_saved': isSaved,
-          'is_group': room['isGroup'] == true || room['is_group'] == true || room['type'] == 'group',
+          'is_group':
+              room['isGroup'] == true ||
+              room['is_group'] == true ||
+              room['type'] == 'group',
           'profile_pic': room['other_user_profile_pic'] ?? room['profile_pic'],
           'is_registered': true,
         });
@@ -199,7 +217,9 @@ class _ChatListScreenState extends State<ChatListScreen> {
           combinedList.add({
             'phone': phone,
             'display_name': savedName,
-            'last_message': isRegistered ? 'Belum ada pesan' : 'Kontak ini belum terdaftar',
+            'last_message': isRegistered
+                ? 'Belum ada pesan'
+                : 'Kontak ini belum terdaftar',
             'last_message_time': null,
             'last_message_sender_id': null,
             'last_message_is_delivered': null,
@@ -217,12 +237,14 @@ class _ChatListScreenState extends State<ChatListScreen> {
       // 3. Fetch Pinned Chats
       final pinnedChatsResult = await DatabaseHelper().getPinnedChats();
       final Map<String, int> pinnedChatsMap = {
-        for (var p in pinnedChatsResult) p['id'] as String: p['pinned_at'] as int
+        for (var p in pinnedChatsResult)
+          p['id'] as String: p['pinned_at'] as int,
       };
 
       for (var i = 0; i < combinedList.length; i++) {
         final item = combinedList[i];
-        final id = item['room_id']?.toString() ?? item['phone']?.toString() ?? '';
+        final id =
+            item['room_id']?.toString() ?? item['phone']?.toString() ?? '';
         if (pinnedChatsMap.containsKey(id)) {
           item['is_pinned'] = true;
           item['pinned_at'] = pinnedChatsMap[id];
@@ -237,7 +259,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
         // Pinned goes first
         if (a['is_pinned'] && !b['is_pinned']) return -1;
         if (!a['is_pinned'] && b['is_pinned']) return 1;
-        
+
         // If both are pinned, sort by pinned_at DESC (higher timestamp first)
         if (a['is_pinned'] && b['is_pinned']) {
           final pA = a['pinned_at'] as int;
@@ -278,8 +300,13 @@ class _ChatListScreenState extends State<ChatListScreen> {
   }
 
   Widget _buildLastMessageStatusIcon(Map<String, dynamic> item) {
-    final isRead = item['last_message_is_read'] == true || item['last_message_is_read'] == 1;
-    final isDelivered = item['last_message_is_delivered'] == 1 || item['last_message_is_delivered'] == true || isRead;
+    final isRead =
+        item['last_message_is_read'] == true ||
+        item['last_message_is_read'] == 1;
+    final isDelivered =
+        item['last_message_is_delivered'] == 1 ||
+        item['last_message_is_delivered'] == true ||
+        isRead;
 
     if (isRead) {
       return const Icon(Icons.done_all, size: 14, color: Colors.blue);
@@ -293,7 +320,13 @@ class _ChatListScreenState extends State<ChatListScreen> {
   Future<void> _handleChatTap(Map<String, dynamic> item) async {
     if (item['room_id'] != null) {
       // Room already exists, open directly
-      _navigateToChat(item['room_id'], item['display_name'], item['phone'], item['is_group'] ?? false, item['profile_pic']);
+      _navigateToChat(
+        item['room_id'],
+        item['display_name'],
+        item['phone'],
+        item['is_group'] ?? false,
+        item['profile_pic'],
+      );
     } else {
       // Room belum aktif di server, buka langsung dengan local_room_id pre-generated
       final phone = item['phone']?.toString() ?? '';
@@ -312,11 +345,23 @@ class _ChatListScreenState extends State<ChatListScreen> {
           localRoomId: localRoomId,
         );
       }
-      _navigateToChat(localRoomId, item['display_name'] ?? phone, phone, false, item['profile_pic']);
+      _navigateToChat(
+        localRoomId,
+        item['display_name'] ?? phone,
+        phone,
+        false,
+        item['profile_pic'],
+      );
     }
   }
 
-  void _navigateToChat(String roomId, String displayName, String otherPhone, [bool isGroup = false, String? profilePic]) {
+  void _navigateToChat(
+    String roomId,
+    String displayName,
+    String otherPhone, [
+    bool isGroup = false,
+    String? profilePic,
+  ]) {
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -335,8 +380,9 @@ class _ChatListScreenState extends State<ChatListScreen> {
 
   void _showProfilePopup(BuildContext context, Map<String, dynamic> item) {
     final isGroup = item['is_group'] == true;
-    final heroTag = 'profile_pic_hero_${isGroup ? 'group_${item['room_id']}' : (item['phone'] ?? item['room_id'])}';
-    
+    final heroTag =
+        'profile_pic_hero_${isGroup ? 'group_${item['room_id']}' : (item['phone'] ?? item['room_id'])}';
+
     Navigator.of(context).push(
       PageRouteBuilder(
         opaque: false,
@@ -352,221 +398,319 @@ class _ChatListScreenState extends State<ChatListScreen> {
                 filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
                 child: Center(
                   child: GestureDetector(
-                    onTap: () {}, // Absorb taps on the card itself so it doesn't close
+                    onTap:
+                        () {}, // Absorb taps on the card itself so it doesn't close
                     child: ScaleTransition(
                       scale: CurvedAnimation(
                         parent: animation,
                         curve: Curves.easeOutBack,
                       ),
-                    child: FadeTransition(
-                      opacity: animation,
-                      child: Container(
-                        width: 320,
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(15),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.15),
-                              blurRadius: 25,
-                              spreadRadius: 5,
-                              offset: const Offset(0, 10),
-                            ),
-                          ],
-                        ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            // Header Image with Hero
-                            GestureDetector(
-                              onTap: () {
-                                Navigator.pop(context);
-                                _showFullImageDialog(context, item, heroTag);
-                              },
-                              child: ClipRRect(
-                                borderRadius: const BorderRadius.vertical(top: Radius.circular(15)),
-                              child: Hero(
-                                tag: heroTag,
-                                child: Container(
-                                  width: 320,
-                                  height: 250,
-                                  decoration: BoxDecoration(
-                                    color: (item['profile_pic'] != null && item['profile_pic'].toString().isNotEmpty) 
-                                        ? Colors.white 
-                                        : isGroup
-                                            ? Colors.orange.shade100
-                                            : (item['is_saved'] == true ? Colors.green.shade100 : Colors.blue.shade100),
-                                    image: (item['profile_pic'] != null && item['profile_pic'].toString().isNotEmpty)
-                                        ? DecorationImage(
-                                            image: NetworkImage(ApiService.getServerUrl(item['profile_pic'])),
-                                            fit: BoxFit.cover,
-                                          )
-                                        : null,
+                      child: FadeTransition(
+                        opacity: animation,
+                        child: Container(
+                          width: 320,
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(15),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.15),
+                                blurRadius: 25,
+                                spreadRadius: 5,
+                                offset: const Offset(0, 10),
+                              ),
+                            ],
+                          ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              // Header Image with Hero
+                              GestureDetector(
+                                onTap: () {
+                                  Navigator.pop(context);
+                                  _showFullImageDialog(context, item, heroTag);
+                                },
+                                child: ClipRRect(
+                                  borderRadius: const BorderRadius.vertical(
+                                    top: Radius.circular(15),
                                   ),
-                                  child: (item['profile_pic'] == null || item['profile_pic'].toString().isEmpty)
-                                      ? Center(
-                                          child: isGroup
-                                              ? Icon(Icons.group_rounded, size: 90, color: Colors.orange.shade800)
-                                              : Text(
-                                                  (item['display_name'] ?? '?').isNotEmpty 
-                                                      ? item['display_name'].substring(0, 1).toUpperCase() 
-                                                      : '?',
-                                                  style: TextStyle(
-                                                    fontSize: 100,
-                                                    color: item['is_saved'] == true
-                                                        ? Colors.green.shade800
-                                                        : const Color(0xFF0F3460),
-                                                    fontWeight: FontWeight.bold,
+                                  child: Hero(
+                                    tag: heroTag,
+                                    child: Container(
+                                      width: 320,
+                                      height: 250,
+                                      decoration: BoxDecoration(
+                                        color:
+                                            (item['profile_pic'] != null &&
+                                                item['profile_pic']
+                                                    .toString()
+                                                    .isNotEmpty)
+                                            ? Colors.white
+                                            : isGroup
+                                            ? Colors.orange.shade100
+                                            : (item['is_saved'] == true
+                                                  ? Colors.green.shade100
+                                                  : Colors.blue.shade100),
+                                        image:
+                                            (item['profile_pic'] != null &&
+                                                item['profile_pic']
+                                                    .toString()
+                                                    .isNotEmpty)
+                                            ? DecorationImage(
+                                                image: NetworkImage(
+                                                  ApiService.getServerUrl(
+                                                    item['profile_pic'],
                                                   ),
                                                 ),
-                                        )
-                                      : null,
+                                                fit: BoxFit.cover,
+                                              )
+                                            : null,
+                                      ),
+                                      child:
+                                          (item['profile_pic'] == null ||
+                                              item['profile_pic']
+                                                  .toString()
+                                                  .isEmpty)
+                                          ? Center(
+                                              child: isGroup
+                                                  ? Icon(
+                                                      Icons.group_rounded,
+                                                      size: 90,
+                                                      color: Colors
+                                                          .orange
+                                                          .shade800,
+                                                    )
+                                                  : Text(
+                                                      (item['display_name'] ??
+                                                                  '?')
+                                                              .isNotEmpty
+                                                          ? item['display_name']
+                                                                .substring(0, 1)
+                                                                .toUpperCase()
+                                                          : '?',
+                                                      style: TextStyle(
+                                                        fontSize: 100,
+                                                        color:
+                                                            item['is_saved'] ==
+                                                                true
+                                                            ? Colors
+                                                                  .green
+                                                                  .shade800
+                                                            : const Color(
+                                                                0xFF0F3460,
+                                                              ),
+                                                        fontWeight:
+                                                            FontWeight.bold,
+                                                      ),
+                                                    ),
+                                            )
+                                          : null,
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
-                            // User Info
-                            Padding(
-                              padding: const EdgeInsets.only(top: 24, bottom: 12, left: 16, right: 16),
-                              child: Column(
-                                children: [
-                                  Text(
-                                    item['display_name'] ?? (isGroup ? 'Grup' : 'Unknown'),
-                                    style: const TextStyle(
-                                      fontSize: 24,
-                                      fontWeight: FontWeight.bold,
-                                      color: Color(0xFF0F3460),
+                              // User Info
+                              Padding(
+                                padding: const EdgeInsets.only(
+                                  top: 24,
+                                  bottom: 12,
+                                  left: 16,
+                                  right: 16,
+                                ),
+                                child: Column(
+                                  children: [
+                                    Text(
+                                      item['display_name'] ??
+                                          (isGroup ? 'Grup' : 'Unknown'),
+                                      style: const TextStyle(
+                                        fontSize: 24,
+                                        fontWeight: FontWeight.bold,
+                                        color: Color(0xFF0F3460),
+                                      ),
+                                      textAlign: TextAlign.center,
                                     ),
-                                    textAlign: TextAlign.center,
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    isGroup ? 'Grup' : (item['phone'] ?? ''),
-                                    style: TextStyle(
-                                      fontSize: isGroup ? 14 : 15,
-                                      color: isGroup ? Colors.orange.shade800 : Colors.grey.shade600,
-                                      fontWeight: isGroup ? FontWeight.w600 : FontWeight.w500,
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      isGroup ? 'Grup' : (item['phone'] ?? ''),
+                                      style: TextStyle(
+                                        fontSize: isGroup ? 14 : 15,
+                                        color: isGroup
+                                            ? Colors.orange.shade800
+                                            : Colors.grey.shade600,
+                                        fontWeight: isGroup
+                                            ? FontWeight.w600
+                                            : FontWeight.w500,
+                                      ),
                                     ),
-                                  ),
-                                ],
+                                  ],
+                                ),
                               ),
-                            ),
-                            // Actions
-                            Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                                children: [
-                                  _buildActionButton(
-                                    icon: Icons.chat_bubble_rounded,
-                                    label: 'Chat',
-                                    color: Colors.blueAccent,
-                                    onTap: () {
-                                      Navigator.pop(context);
-                                      _handleChatTap(item);
-                                    },
-                                  ),
-                                  _buildActionButton(
-                                    icon: Icons.call_rounded,
-                                    label: 'Voice',
-                                    color: Colors.green,
-                                    onTap: () {
-                                      Navigator.pop(context);
-                                      final phone = item['phone']?.toString() ?? '';
-                                      final name = item['display_name']?.toString() ?? (isGroup ? 'Grup' : phone);
-                                      final roomId = item['room_id']?.toString();
-                                      CallManager.instance.startCall(
-                                        phone,
-                                        name,
-                                        false,
-                                        groupId: isGroup ? roomId : null,
-                                      );
-                                    },
-                                  ),
-                                  _buildActionButton(
-                                    icon: Icons.videocam_rounded,
-                                    label: 'Video',
-                                    color: Colors.teal,
-                                    onTap: () {
-                                      Navigator.pop(context);
-                                      final phone = item['phone']?.toString() ?? '';
-                                      final name = item['display_name']?.toString() ?? (isGroup ? 'Grup' : phone);
-                                      final roomId = item['room_id']?.toString();
-                                      CallManager.instance.startCall(
-                                        phone,
-                                        name,
-                                        true,
-                                        groupId: isGroup ? roomId : null,
-                                      );
-                                    },
-                                  ),
-                                  _buildActionButton(
-                                    icon: Icons.info_outline_rounded,
-                                    label: 'Info',
-                                    color: Colors.grey.shade700,
-                                    onTap: () {
-                                      Navigator.pop(context);
-                                      Navigator.push(
-                                        context,
-                                        PageRouteBuilder(
-                                          transitionDuration: const Duration(milliseconds: 320),
-                                          reverseTransitionDuration: const Duration(milliseconds: 280),
-                                          pageBuilder: (context, animation, secondaryAnimation) => ContactInfoScreen(
-                                            phone: item['phone']?.toString() ?? '',
-                                            displayName: item['display_name'],
-                                            profilePic: item['profile_pic'],
-                                            roomId: item['room_id']?.toString(),
-                                            isGroup: item['is_group'] == true,
+                              // Actions
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 20,
+                                  vertical: 15,
+                                ),
+                                child: Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceEvenly,
+                                  children: [
+                                    _buildActionButton(
+                                      icon: Icons.chat_bubble_rounded,
+                                      label: 'Chat',
+                                      color: Colors.blueAccent,
+                                      onTap: () {
+                                        Navigator.pop(context);
+                                        _handleChatTap(item);
+                                      },
+                                    ),
+                                    _buildActionButton(
+                                      icon: Icons.call_rounded,
+                                      label: 'Voice',
+                                      color: Colors.green,
+                                      onTap: () {
+                                        Navigator.pop(context);
+                                        final phone =
+                                            item['phone']?.toString() ?? '';
+                                        final name =
+                                            item['display_name']?.toString() ??
+                                            (isGroup ? 'Grup' : phone);
+                                        final roomId = item['room_id']
+                                            ?.toString();
+                                        CallManager.instance.startCall(
+                                          phone,
+                                          name,
+                                          false,
+                                          groupId: isGroup ? roomId : null,
+                                        );
+                                      },
+                                    ),
+                                    _buildActionButton(
+                                      icon: Icons.videocam_rounded,
+                                      label: 'Video',
+                                      color: Colors.teal,
+                                      onTap: () {
+                                        Navigator.pop(context);
+                                        final phone =
+                                            item['phone']?.toString() ?? '';
+                                        final name =
+                                            item['display_name']?.toString() ??
+                                            (isGroup ? 'Grup' : phone);
+                                        final roomId = item['room_id']
+                                            ?.toString();
+                                        CallManager.instance.startCall(
+                                          phone,
+                                          name,
+                                          true,
+                                          groupId: isGroup ? roomId : null,
+                                        );
+                                      },
+                                    ),
+                                    _buildActionButton(
+                                      icon: Icons.info_outline_rounded,
+                                      label: 'Info',
+                                      color: Colors.grey.shade700,
+                                      onTap: () {
+                                        Navigator.pop(context);
+                                        Navigator.push(
+                                          context,
+                                          PageRouteBuilder(
+                                            transitionDuration: const Duration(
+                                              milliseconds: 320,
+                                            ),
+                                            reverseTransitionDuration:
+                                                const Duration(
+                                                  milliseconds: 280,
+                                                ),
+                                            pageBuilder:
+                                                (
+                                                  context,
+                                                  animation,
+                                                  secondaryAnimation,
+                                                ) => ContactInfoScreen(
+                                                  phone:
+                                                      item['phone']
+                                                          ?.toString() ??
+                                                      '',
+                                                  displayName:
+                                                      item['display_name'],
+                                                  profilePic:
+                                                      item['profile_pic'],
+                                                  roomId: item['room_id']
+                                                      ?.toString(),
+                                                  isGroup:
+                                                      item['is_group'] == true,
+                                                ),
+                                            transitionsBuilder:
+                                                (
+                                                  context,
+                                                  animation,
+                                                  secondaryAnimation,
+                                                  child,
+                                                ) {
+                                                  final curved =
+                                                      CurvedAnimation(
+                                                        parent: animation,
+                                                        curve:
+                                                            Curves.easeOutCubic,
+                                                        reverseCurve:
+                                                            Curves.easeInCubic,
+                                                      );
+                                                  return SlideTransition(
+                                                    position: Tween<Offset>(
+                                                      begin: const Offset(
+                                                        1.0,
+                                                        0.0,
+                                                      ),
+                                                      end: Offset.zero,
+                                                    ).animate(curved),
+                                                    child: FadeTransition(
+                                                      opacity: Tween<double>(
+                                                        begin: 0.0,
+                                                        end: 1.0,
+                                                      ).animate(curved),
+                                                      child: child,
+                                                    ),
+                                                  );
+                                                },
                                           ),
-                                          transitionsBuilder: (context, animation, secondaryAnimation, child) {
-                                            final curved = CurvedAnimation(
-                                              parent: animation,
-                                              curve: Curves.easeOutCubic,
-                                              reverseCurve: Curves.easeInCubic,
-                                            );
-                                            return SlideTransition(
-                                              position: Tween<Offset>(
-                                                begin: const Offset(1.0, 0.0),
-                                                end: Offset.zero,
-                                              ).animate(curved),
-                                              child: FadeTransition(
-                                                opacity: Tween<double>(begin: 0.0, end: 1.0).animate(curved),
-                                                child: child,
-                                              ),
-                                            );
-                                          },
-                                        ),
-                                      ).then((_) {
-                                        _fetchData();
-                                      });
-                                    },
-                                  ),
-                                ],
+                                        ).then((_) {
+                                          _fetchData();
+                                        });
+                                      },
+                                    ),
+                                  ],
+                                ),
                               ),
-                            ),
-                            const SizedBox(height: 10),
-                          ],
-                        ),
-                      ), // Container
-                    ), // FadeTransition
-                  ), // ScaleTransition
-                ), // GestureDetector (inner)
-              ), // Center
-            ), // BackdropFilter
-          ), // Material
-        ); // GestureDetector (outer)
-      },
+                              const SizedBox(height: 10),
+                            ],
+                          ),
+                        ), // Container
+                      ), // FadeTransition
+                    ), // ScaleTransition
+                  ), // GestureDetector (inner)
+                ), // Center
+              ), // BackdropFilter
+            ), // Material
+          ); // GestureDetector (outer)
+        },
       ),
     );
   }
 
-  void _showFullImageDialog(BuildContext context, Map<String, dynamic> item, String heroTag) {
+  void _showFullImageDialog(
+    BuildContext context,
+    Map<String, dynamic> item,
+    String heroTag,
+  ) {
     Navigator.of(context).push(
       PageRouteBuilder(
         transitionDuration: const Duration(milliseconds: 300),
         pageBuilder: (context, animation, secondaryAnimation) {
-          final hasImage = item['profile_pic'] != null && item['profile_pic'].toString().isNotEmpty;
-          
+          final hasImage =
+              item['profile_pic'] != null &&
+              item['profile_pic'].toString().isNotEmpty;
+
           return Scaffold(
             backgroundColor: Colors.black,
             appBar: AppBar(
@@ -578,60 +722,68 @@ class _ChatListScreenState extends State<ChatListScreen> {
             body: Center(
               child: Hero(
                 tag: heroTag,
-                child: hasImage 
-                  ? Image.network(
-                      ApiService.getServerUrl(item['profile_pic']), 
-                      fit: BoxFit.contain,
-                      width: double.infinity,
-                      loadingBuilder: (context, child, loadingProgress) {
-                        if (loadingProgress == null) return child;
-                        return Stack(
-                          alignment: Alignment.center,
-                          children: [
-                            Image.network(
-                              '${ApiService.getServerUrl(item['profile_pic'])}?size=360',
-                              fit: BoxFit.contain,
-                              width: double.infinity,
+                child: hasImage
+                    ? Image.network(
+                        ApiService.getServerUrl(item['profile_pic']),
+                        fit: BoxFit.contain,
+                        width: double.infinity,
+                        loadingBuilder: (context, child, loadingProgress) {
+                          if (loadingProgress == null) return child;
+                          return Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              Image.network(
+                                '${ApiService.getServerUrl(item['profile_pic'])}?size=360',
+                                fit: BoxFit.contain,
+                                width: double.infinity,
+                              ),
+                              const CircularProgressIndicator(
+                                color: Colors.white,
+                              ),
+                            ],
+                          );
+                        },
+                      )
+                    : Container(
+                        width: double.infinity,
+                        height: double.infinity,
+                        color: item['is_saved'] == true
+                            ? Colors.green.shade100
+                            : Colors.blue.shade100,
+                        child: Center(
+                          child: Text(
+                            (item['display_name'] ?? '?').isNotEmpty
+                                ? item['display_name']
+                                      .substring(0, 1)
+                                      .toUpperCase()
+                                : '?',
+                            style: TextStyle(
+                              fontSize: 150,
+                              color: item['is_saved'] == true
+                                  ? Colors.green.shade800
+                                  : const Color(0xFF0F3460),
+                              fontWeight: FontWeight.bold,
                             ),
-                            const CircularProgressIndicator(color: Colors.white),
-                          ],
-                        );
-                      },
-                    )
-                  : Container(
-                      width: double.infinity,
-                      height: double.infinity,
-                      color: item['is_saved'] == true ? Colors.green.shade100 : Colors.blue.shade100,
-                      child: Center(
-                        child: Text(
-                          (item['display_name'] ?? '?').isNotEmpty 
-                              ? item['display_name'].substring(0, 1).toUpperCase() 
-                              : '?',
-                          style: TextStyle(
-                            fontSize: 150,
-                            color: item['is_saved'] == true
-                                ? Colors.green.shade800
-                                : const Color(0xFF0F3460),
-                            fontWeight: FontWeight.bold,
                           ),
                         ),
                       ),
-                    ),
               ),
             ),
           );
         },
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          return FadeTransition(
-            opacity: animation,
-            child: child,
-          );
+          return FadeTransition(opacity: animation, child: child);
         },
       ),
     );
   }
 
-  Widget _buildActionButton({required IconData icon, required String label, required Color color, required VoidCallback onTap}) {
+  Widget _buildActionButton({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
     return GestureDetector(
       onTap: onTap,
       child: Column(
@@ -640,7 +792,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: color.withOpacity(0.12),
+              color: color.withValues(alpha: 0.12),
               shape: BoxShape.circle,
             ),
             child: Icon(icon, color: color, size: 28),
@@ -675,10 +827,12 @@ class _ChatListScreenState extends State<ChatListScreen> {
     bool allSelectedArePinned = false;
     if (isSelectionMode) {
       final selectedItems = _mergedList.where((item) {
-        final id = item['room_id']?.toString() ?? item['phone']?.toString() ?? '';
+        final id =
+            item['room_id']?.toString() ?? item['phone']?.toString() ?? '';
         return _selectedChats.contains(id);
       }).toList();
-      allSelectedArePinned = selectedItems.isNotEmpty && 
+      allSelectedArePinned =
+          selectedItems.isNotEmpty &&
           selectedItems.every((item) => item['is_pinned'] == true);
     }
 
@@ -699,7 +853,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
               elevation: 0,
               actions: [
                 IconButton(
-                  icon: allSelectedArePinned 
+                  icon: allSelectedArePinned
                       ? Stack(
                           alignment: Alignment.center,
                           children: [
@@ -731,21 +885,29 @@ class _ChatListScreenState extends State<ChatListScreen> {
                 IconButton(
                   icon: const Icon(Icons.volume_off),
                   onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Fitur Bisukan belum tersedia')));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Fitur Bisukan belum tersedia'),
+                      ),
+                    );
                     setState(() => _selectedChats.clear());
                   },
                 ),
                 IconButton(
                   icon: const Icon(Icons.archive),
                   onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Fitur Arsipkan belum tersedia')));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Fitur Arsipkan belum tersedia'),
+                      ),
+                    );
                     setState(() => _selectedChats.clear());
                   },
                 ),
               ],
             )
           : AppBar(
-              title: _searchQuery.isNotEmpty 
+              title: _searchQuery.isNotEmpty
                   ? TextField(
                       autofocus: true,
                       style: const TextStyle(color: Colors.white),
@@ -762,7 +924,9 @@ class _ChatListScreenState extends State<ChatListScreen> {
               elevation: 0,
               actions: [
                 IconButton(
-                  icon: Icon(_searchQuery.isNotEmpty ? Icons.close : Icons.search),
+                  icon: Icon(
+                    _searchQuery.isNotEmpty ? Icons.close : Icons.search,
+                  ),
                   onPressed: () {
                     setState(() {
                       if (_searchQuery.isNotEmpty) {
@@ -780,12 +944,17 @@ class _ChatListScreenState extends State<ChatListScreen> {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (context) => CreateGroupScreen(myUserId: _myUserId!),
+                          builder: (context) =>
+                              CreateGroupScreen(myUserId: _myUserId!),
                         ),
                       ).then((_) => _fetchData());
                     } else {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('User ID tidak ditemukan. Harap tunggu.')),
+                        const SnackBar(
+                          content: Text(
+                            'User ID tidak ditemukan. Harap tunggu.',
+                          ),
+                        ),
                       );
                     }
                   },
@@ -817,27 +986,38 @@ class _ChatListScreenState extends State<ChatListScreen> {
                 itemBuilder: (context, index) {
                   final item = filteredList[index];
                   final timeStr = _formatTime(item['last_message_time']);
-                  final itemId = item['room_id']?.toString() ?? item['phone']?.toString() ?? '';
+                  final itemId =
+                      item['room_id']?.toString() ??
+                      item['phone']?.toString() ??
+                      '';
                   final isSelected = _selectedChats.contains(itemId);
 
                   return AnimatedContainer(
                     duration: const Duration(milliseconds: 300),
                     curve: Curves.easeInOut,
-                    color: isSelected ? primaryColor.withOpacity(0.12) : Colors.transparent,
+                    color: isSelected
+                        ? primaryColor.withValues(alpha: 0.12)
+                        : Colors.transparent,
                     child: Material(
                       color: Colors.transparent,
                       child: Theme(
                         data: Theme.of(context).copyWith(
-                          splashColor: const Color(0xFF0F3460).withOpacity(0.15),
-                          highlightColor: Colors.black.withOpacity(0.08),
+                          splashColor: const Color(
+                            0xFF0F3460,
+                          ).withValues(alpha: 0.15),
+                          highlightColor: Colors.black.withValues(alpha: 0.08),
                         ),
                         child: ListTile(
-                          splashColor: const Color(0xFF0F3460).withOpacity(0.15),
-                          focusColor: Colors.black.withOpacity(0.06),
-                          hoverColor: Colors.black.withOpacity(0.04),
-                          onLongPress: item['is_registered'] == false ? null : () {
-                            _toggleSelection(itemId);
-                          },
+                          splashColor: const Color(
+                            0xFF0F3460,
+                          ).withValues(alpha: 0.15),
+                          focusColor: Colors.black.withValues(alpha: 0.06),
+                          hoverColor: Colors.black.withValues(alpha: 0.04),
+                          onLongPress: item['is_registered'] == false
+                              ? null
+                              : () {
+                                  _toggleSelection(itemId);
+                                },
                           leading: Stack(
                             children: [
                               GestureDetector(
@@ -849,31 +1029,50 @@ class _ChatListScreenState extends State<ChatListScreen> {
                                   _showProfilePopup(context, item);
                                 },
                                 child: Hero(
-                                  tag: 'profile_pic_hero_${item['is_group'] == true ? 'group_${item['room_id']}' : (item['phone'] ?? item['room_id'])}',
+                                  tag:
+                                      'profile_pic_hero_${item['is_group'] == true ? 'group_${item['room_id']}' : (item['phone'] ?? item['room_id'])}',
                                   child: CircleAvatar(
-                                    backgroundColor: item['is_group'] == true 
+                                    backgroundColor: item['is_group'] == true
                                         ? Colors.orange.shade100
                                         : item['is_saved']
-                                            ? Colors.green.shade100
-                                            : Colors.blue.shade100,
-                                    backgroundImage: (item['profile_pic'] != null && item['profile_pic'].toString().isNotEmpty) 
-                                        ? NetworkImage(ApiService.getServerUrl(item['profile_pic'])) 
+                                        ? Colors.green.shade100
+                                        : Colors.blue.shade100,
+                                    backgroundImage:
+                                        (item['profile_pic'] != null &&
+                                            item['profile_pic']
+                                                .toString()
+                                                .isNotEmpty)
+                                        ? NetworkImage(
+                                            ApiService.getServerUrl(
+                                              item['profile_pic'],
+                                            ),
+                                          )
                                         : null,
-                                    child: (item['profile_pic'] != null && item['profile_pic'].toString().isNotEmpty) 
-                                        ? null 
+                                    child:
+                                        (item['profile_pic'] != null &&
+                                            item['profile_pic']
+                                                .toString()
+                                                .isNotEmpty)
+                                        ? null
                                         : item['is_group'] == true
-                                            ? Icon(Icons.group, color: Colors.orange.shade800)
-                                            : Text(
-                                                (item['display_name'] ?? '?').isNotEmpty 
-                                                    ? item['display_name'].substring(0, 1).toUpperCase() 
-                                                    : '?',
-                                                style: TextStyle(
-                                                  color: item['is_saved']
-                                                      ? Colors.green.shade800
-                                                      : primaryColor,
-                                                  fontWeight: FontWeight.bold,
-                                                ),
-                                              ),
+                                        ? Icon(
+                                            Icons.group,
+                                            color: Colors.orange.shade800,
+                                          )
+                                        : Text(
+                                            (item['display_name'] ?? '?')
+                                                    .isNotEmpty
+                                                ? item['display_name']
+                                                      .substring(0, 1)
+                                                      .toUpperCase()
+                                                : '?',
+                                            style: TextStyle(
+                                              color: item['is_saved']
+                                                  ? Colors.green.shade800
+                                                  : primaryColor,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
                                   ),
                                 ),
                               ),
@@ -888,7 +1087,10 @@ class _ChatListScreenState extends State<ChatListScreen> {
                                     decoration: BoxDecoration(
                                       color: Colors.blueAccent,
                                       shape: BoxShape.circle,
-                                      border: Border.all(color: Colors.white, width: 2),
+                                      border: Border.all(
+                                        color: Colors.white,
+                                        width: 2,
+                                      ),
                                     ),
                                     padding: const EdgeInsets.all(2),
                                     child: const Icon(
@@ -906,7 +1108,9 @@ class _ChatListScreenState extends State<ChatListScreen> {
                               Expanded(
                                 child: Text(
                                   item['display_name'],
-                                  style: const TextStyle(fontWeight: FontWeight.bold),
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                  ),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),
@@ -914,23 +1118,37 @@ class _ChatListScreenState extends State<ChatListScreen> {
                               if (item['is_pinned'] == true)
                                 const Padding(
                                   padding: EdgeInsets.only(left: 4),
-                                  child: Icon(Icons.push_pin, size: 14, color: Colors.grey),
+                                  child: Icon(
+                                    Icons.push_pin,
+                                    size: 14,
+                                    color: Colors.grey,
+                                  ),
                                 ),
                             ],
                           ),
                           subtitle: Row(
                             children: [
                               if (item['last_message_sender_id'] != null &&
-                                  item['last_message_sender_id'].toString() == _myUserId &&
-                                  (item['last_message'] ?? '').toString().isNotEmpty &&
+                                  item['last_message_sender_id'].toString() ==
+                                      _myUserId &&
+                                  (item['last_message'] ?? '')
+                                      .toString()
+                                      .isNotEmpty &&
                                   item['last_message'] != 'Belum ada pesan' &&
-                                  item['last_message'] != 'Kontak ini belum terdaftar' &&
-                                  item['last_message'] != 'Pesan ini telah ditarik') ...[
+                                  item['last_message'] !=
+                                      'Kontak ini belum terdaftar' &&
+                                  item['last_message'] !=
+                                      'Pesan ini telah ditarik') ...[
                                 _buildLastMessageStatusIcon(item),
                                 const SizedBox(width: 4),
                               ],
-                              if (item['last_message'] == 'Pesan ini telah ditarik') ...[
-                                Icon(Icons.block_rounded, size: 13, color: Colors.grey.shade500),
+                              if (item['last_message'] ==
+                                  'Pesan ini telah ditarik') ...[
+                                Icon(
+                                  Icons.block_rounded,
+                                  size: 13,
+                                  color: Colors.grey.shade500,
+                                ),
                                 const SizedBox(width: 4),
                               ],
                               Expanded(
@@ -939,9 +1157,17 @@ class _ChatListScreenState extends State<ChatListScreen> {
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
-                                    color: (item['unread_count'] ?? 0) > 0 ? Colors.black87 : Colors.grey.shade600,
-                                    fontWeight: (item['unread_count'] ?? 0) > 0 ? FontWeight.w600 : FontWeight.normal,
-                                    fontStyle: item['last_message'] == 'Pesan ini telah ditarik' ? FontStyle.italic : FontStyle.normal,
+                                    color: (item['unread_count'] ?? 0) > 0
+                                        ? Colors.black87
+                                        : Colors.grey.shade600,
+                                    fontWeight: (item['unread_count'] ?? 0) > 0
+                                        ? FontWeight.w600
+                                        : FontWeight.normal,
+                                    fontStyle:
+                                        item['last_message'] ==
+                                            'Pesan ini telah ditarik'
+                                        ? FontStyle.italic
+                                        : FontStyle.normal,
                                   ),
                                 ),
                               ),
@@ -951,15 +1177,29 @@ class _ChatListScreenState extends State<ChatListScreen> {
                               ? TextButton(
                                   onPressed: () {
                                     ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(content: Text('Fitur undang belum tersedia')),
+                                      const SnackBar(
+                                        content: Text(
+                                          'Fitur undang belum tersedia',
+                                        ),
+                                      ),
                                     );
                                   },
                                   style: TextButton.styleFrom(
-                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 4,
+                                    ),
                                     minimumSize: Size.zero,
-                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                    tapTargetSize:
+                                        MaterialTapTargetSize.shrinkWrap,
                                   ),
-                                  child: const Text('Undang', style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)),
+                                  child: const Text(
+                                    'Undang',
+                                    style: TextStyle(
+                                      color: Colors.blue,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
                                 )
                               : Column(
                                   mainAxisAlignment: MainAxisAlignment.center,
@@ -968,20 +1208,33 @@ class _ChatListScreenState extends State<ChatListScreen> {
                                     Text(
                                       timeStr,
                                       style: TextStyle(
-                                        color: (item['unread_count'] ?? 0) > 0 ? const Color(0xFF0F3460) : Colors.grey,
+                                        color: (item['unread_count'] ?? 0) > 0
+                                            ? const Color(0xFF0F3460)
+                                            : Colors.grey,
                                         fontSize: 12,
-                                        fontWeight: (item['unread_count'] ?? 0) > 0 ? FontWeight.bold : FontWeight.normal,
+                                        fontWeight:
+                                            (item['unread_count'] ?? 0) > 0
+                                            ? FontWeight.bold
+                                            : FontWeight.normal,
                                       ),
                                     ),
                                     if ((item['unread_count'] ?? 0) > 0) ...[
                                       const SizedBox(height: 4),
                                       Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 6,
+                                          vertical: 2,
+                                        ),
                                         decoration: BoxDecoration(
                                           color: Colors.green.shade600,
-                                          borderRadius: BorderRadius.circular(10),
+                                          borderRadius: BorderRadius.circular(
+                                            10,
+                                          ),
                                         ),
-                                        constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+                                        constraints: const BoxConstraints(
+                                          minWidth: 18,
+                                          minHeight: 18,
+                                        ),
                                         child: Center(
                                           child: Text(
                                             '${item['unread_count']}',
@@ -996,8 +1249,8 @@ class _ChatListScreenState extends State<ChatListScreen> {
                                     ],
                                   ],
                                 ),
-                          onTap: item['is_registered'] == false 
-                              ? null 
+                          onTap: item['is_registered'] == false
+                              ? null
                               : () {
                                   if (_selectedChats.isNotEmpty) {
                                     _toggleSelection(itemId);

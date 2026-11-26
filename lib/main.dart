@@ -11,6 +11,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'firebase_options.dart';
 import 'services/notification_service.dart';
 import 'services/call_manager.dart';
+import 'services/api_service.dart';
 import 'widgets/call_overlay.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -64,6 +65,7 @@ void main() async {
       NotificationService().init();
     });
     CallManager.instance.initSocket();
+    ApiService.checkAuth();
   }
 }
 
@@ -73,7 +75,8 @@ class MainApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(navigatorKey: navigatorKey,
+    return MaterialApp(
+      navigatorKey: navigatorKey,
       title: 'Our Chat',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
@@ -88,4 +91,3 @@ class MainApp extends StatelessWidget {
     );
   }
 }
-

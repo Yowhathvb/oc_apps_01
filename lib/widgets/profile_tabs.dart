@@ -1,13 +1,20 @@
 import 'package:flutter/material.dart';
-import '../services/api_service.dart';
-import '../models/post_model.dart';
 import 'package:timeago/timeago.dart' as timeago;
+import '../models/media_view_settings.dart';
+import '../models/post_model.dart';
+import '../screens/single_post_screen.dart';
+import '../services/api_service.dart';
+import 'media_video_player.dart';
 
 class ProfilePostsTab extends StatefulWidget {
   final String userId;
   final String contentType;
 
-  const ProfilePostsTab({super.key, required this.userId, required this.contentType});
+  const ProfilePostsTab({
+    super.key,
+    required this.userId,
+    required this.contentType,
+  });
 
   @override
   State<ProfilePostsTab> createState() => _ProfilePostsTabState();
@@ -16,6 +23,8 @@ class ProfilePostsTab extends StatefulWidget {
 class _ProfilePostsTabState extends State<ProfilePostsTab> {
   bool _isLoading = true;
   List<PostModel> _posts = [];
+  int _unlockedVideoCount = 1;
+  final Set<int> _forcedRenderIds = {};
 
   @override
   void initState() {
@@ -24,12 +33,19 @@ class _ProfilePostsTabState extends State<ProfilePostsTab> {
   }
 
   Future<void> _fetchPosts() async {
-    final res = await ApiService.getUserContent(widget.userId, widget.contentType);
+    final res = await ApiService.getUserContent(
+      widget.userId,
+      widget.contentType,
+    );
     if (mounted) {
       setState(() {
         _isLoading = false;
+        _unlockedVideoCount = 1;
+        _forcedRenderIds.clear();
         if (res['success'] == true) {
-          _posts = (res['data'] as List).map((p) => PostModel.fromJson(p)).toList();
+          _posts = (res['data'] as List)
+              .map((p) => PostModel.fromJson(Map<String, dynamic>.from(p)))
+              .toList();
         }
       });
     }
@@ -41,14 +57,35 @@ class _ProfilePostsTabState extends State<ProfilePostsTab> {
       return const Center(child: CircularProgressIndicator());
     }
     if (_posts.isEmpty) {
-      return Center(child: Text(widget.contentType == 'likes' ? 'Belum ada yang disukai' : 'Belum ada postingan'));
+      return Center(
+        child: Text(
+          widget.contentType == 'likes'
+              ? 'Belum ada yang disukai'
+              : 'Belum ada postingan',
+        ),
+      );
     }
+
+    int videoCounter = 0;
+    final videoQueue = <int, int>{};
+    for (final p in _posts) {
+      if (p.mediaType == 'video' && p.mediaUrl != null) {
+        videoCounter++;
+        videoQueue[p.id] = videoCounter;
+      }
+    }
+
     return ListView.separated(
       padding: const EdgeInsets.symmetric(vertical: 8),
       itemCount: _posts.length,
       separatorBuilder: (context, index) => const Divider(height: 1),
       itemBuilder: (context, index) {
         final post = _posts[index];
+        final queuePos = videoQueue[post.id];
+        final shouldRender = queuePos == null
+            ? false
+            : (queuePos <= _unlockedVideoCount ||
+                  _forcedRenderIds.contains(post.id));
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
           child: Column(
@@ -60,14 +97,29 @@ class _ProfilePostsTabState extends State<ProfilePostsTab> {
                     radius: 16,
                     backgroundColor: Colors.grey[300],
                     backgroundImage: post.authorAvatar != null
-                        ? NetworkImage(ApiService.getServerUrl(post.authorAvatar!))
+                        ? NetworkImage(
+                            ApiService.getServerUrl(post.authorAvatar!),
+                          )
                         : null,
-                    child: post.authorAvatar == null ? Text(post.authorName.substring(0,1).toUpperCase(), style: const TextStyle(fontSize: 12)) : null,
+                    child: post.authorAvatar == null
+                        ? Text(
+                            post.authorName.isNotEmpty
+                                ? post.authorName.substring(0, 1).toUpperCase()
+                                : 'U',
+                            style: const TextStyle(fontSize: 12),
+                          )
+                        : null,
                   ),
                   const SizedBox(width: 8),
-                  Text(post.authorName, style: const TextStyle(fontWeight: FontWeight.bold)),
+                  Text(
+                    post.authorName,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
                   const SizedBox(width: 6),
-                  Text("• ${timeago.format(post.createdAt, locale: 'id')}", style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                  Text(
+                    "• ${timeago.format(post.createdAt, locale: 'id')}",
+                    style: const TextStyle(color: Colors.grey, fontSize: 12),
+                  ),
                 ],
               ),
               const SizedBox(height: 8),
@@ -84,6 +136,25 @@ class _ProfilePostsTabState extends State<ProfilePostsTab> {
                   ),
                 ),
               ],
+              if (post.mediaUrl != null && post.mediaType == 'video') ...[
+                const SizedBox(height: 8),
+                MediaVideoPlayer(
+                  post: post,
+                  viewConfig: MediaViewSettings.defaults,
+                  shouldRender: shouldRender,
+                  queuePosition: queuePos,
+                  onRendered: () {
+                    if (queuePos != null &&
+                        queuePos >= _unlockedVideoCount &&
+                        mounted) {
+                      setState(() => _unlockedVideoCount = queuePos + 1);
+                    }
+                  },
+                  onForceRender: () {
+                    setState(() => _forcedRenderIds.add(post.id));
+                  },
+                ),
+              ],
             ],
           ),
         );
@@ -96,7 +167,11 @@ class ProfileReelsTab extends StatefulWidget {
   final String userId;
   final String contentType;
 
-  const ProfileReelsTab({super.key, required this.userId, required this.contentType});
+  const ProfileReelsTab({
+    super.key,
+    required this.userId,
+    required this.contentType,
+  });
 
   @override
   State<ProfileReelsTab> createState() => _ProfileReelsTabState();
@@ -113,12 +188,17 @@ class _ProfileReelsTabState extends State<ProfileReelsTab> {
   }
 
   Future<void> _fetchReels() async {
-    final res = await ApiService.getUserContent(widget.userId, widget.contentType);
+    final res = await ApiService.getUserContent(
+      widget.userId,
+      widget.contentType,
+    );
     if (mounted) {
       setState(() {
         _isLoading = false;
         if (res['success'] == true) {
-          _reels = (res['data'] as List).map((p) => PostModel.fromJson(p)).toList();
+          _reels = (res['data'] as List)
+              .map((p) => PostModel.fromJson(Map<String, dynamic>.from(p)))
+              .toList();
         }
       });
     }
@@ -143,18 +223,53 @@ class _ProfileReelsTabState extends State<ProfileReelsTab> {
       itemCount: _reels.length,
       itemBuilder: (context, index) {
         final reel = _reels[index];
-        return Container(
-          color: Colors.grey[800],
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              // Placeholder for video thumbnail. 
-              // Usually we'd use Image.network if we have a thumbnail URL.
-              // For now, just a dark background with an icon.
-              const Center(
-                child: Icon(Icons.play_arrow, color: Colors.white, size: 40),
+        return GestureDetector(
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => SinglePostScreen(postId: reel.id),
               ),
-            ],
+            );
+          },
+          child: Container(
+            color: Colors.grey[900],
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                if (reel.thumbnailUrl != null && reel.thumbnailUrl!.isNotEmpty)
+                  Image.network(
+                    ApiService.getServerUrl(reel.thumbnailUrl!),
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                  ),
+                const Center(
+                  child: Icon(Icons.play_arrow, color: Colors.white, size: 36),
+                ),
+                Positioned(
+                  bottom: 6,
+                  left: 6,
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.play_arrow,
+                        color: Colors.white,
+                        size: 14,
+                      ),
+                      const SizedBox(width: 2),
+                      Text(
+                        '${reel.viewsCount}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         );
       },
@@ -171,7 +286,8 @@ class ProfileRepostsTab extends StatefulWidget {
   State<ProfileRepostsTab> createState() => _ProfileRepostsTabState();
 }
 
-class _ProfileRepostsTabState extends State<ProfileRepostsTab> with SingleTickerProviderStateMixin {
+class _ProfileRepostsTabState extends State<ProfileRepostsTab>
+    with SingleTickerProviderStateMixin {
   late TabController _subTabController;
 
   @override
@@ -205,8 +321,14 @@ class _ProfileRepostsTabState extends State<ProfileRepostsTab> with SingleTicker
           child: TabBarView(
             controller: _subTabController,
             children: [
-              ProfilePostsTab(userId: widget.userId, contentType: 'reposts_posts'),
-              ProfileReelsTab(userId: widget.userId, contentType: 'reposts_reels'),
+              ProfilePostsTab(
+                userId: widget.userId,
+                contentType: 'reposts_posts',
+              ),
+              ProfileReelsTab(
+                userId: widget.userId,
+                contentType: 'reposts_reels',
+              ),
             ],
           ),
         ),

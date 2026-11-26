@@ -78,14 +78,14 @@ class _IosMessagePopupScreen extends StatefulWidget {
   final List<IosMessageAction> row2Actions;
 
   const _IosMessagePopupScreen({
-    Key? key,
+    super.key,
     required this.animation,
     required this.messageRect,
     required this.messageBubble,
     required this.isMe,
     required this.row1Actions,
     required this.row2Actions,
-  }) : super(key: key);
+  });
 
   @override
   State<_IosMessagePopupScreen> createState() => _IosMessagePopupScreenState();
@@ -103,7 +103,9 @@ class _IosMessagePopupScreenState extends State<_IosMessagePopupScreen> {
     const double arrowSize = 10.0;
 
     // Tentukan posisi menu: di bawah bubble atau di atas bubble jika ruang bawah sempit
-    final bool fitsBelow = widget.messageRect.bottom + menuHeight + arrowSize + 20 < screenSize.height - bottomPadding;
+    final bool fitsBelow =
+        widget.messageRect.bottom + menuHeight + arrowSize + 20 <
+        screenSize.height - bottomPadding;
     final double menuTop = fitsBelow
         ? widget.messageRect.bottom + arrowSize + 4
         : widget.messageRect.top - menuHeight - arrowSize - 4;
@@ -119,9 +121,12 @@ class _IosMessagePopupScreenState extends State<_IosMessagePopupScreen> {
     );
 
     // Hitung posisi panah (arrow) agar menunjuk ke tengah bubble pesan
-    final double bubbleCenterX = safeBubbleLeft + (widget.messageRect.width / 2);
-    final double arrowLeft = (bubbleCenterX - menuLeft - (arrowSize / 2))
-        .clamp(20.0, menuWidth - 20.0 - arrowSize);
+    final double bubbleCenterX =
+        safeBubbleLeft + (widget.messageRect.width / 2);
+    final double arrowLeft = (bubbleCenterX - menuLeft - (arrowSize / 2)).clamp(
+      20.0,
+      menuWidth - 20.0 - arrowSize,
+    );
 
     return Material(
       color: Colors.transparent,
@@ -145,7 +150,7 @@ class _IosMessagePopupScreenState extends State<_IosMessagePopupScreen> {
                     sigmaY: 10 * opacity,
                   ),
                   child: Container(
-                    color: Colors.black.withOpacity(0.55 * opacity),
+                    color: Colors.black.withValues(alpha: 0.55 * opacity),
                   ),
                 );
               },
@@ -163,20 +168,22 @@ class _IosMessagePopupScreenState extends State<_IosMessagePopupScreen> {
                 final scale = 1.0 + (0.015 * widget.animation.value);
                 return Transform.scale(
                   scale: scale,
-                  alignment: widget.isMe ? Alignment.centerRight : Alignment.centerLeft,
+                  alignment: widget.isMe
+                      ? Alignment.centerRight
+                      : Alignment.centerLeft,
                   child: Container(
                     decoration: BoxDecoration(
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.35 * widget.animation.value),
+                          color: Colors.black.withValues(
+                            alpha: 0.35 * widget.animation.value,
+                          ),
                           blurRadius: 18,
                           offset: const Offset(0, 6),
                         ),
                       ],
                     ),
-                    child: IgnorePointer(
-                      child: widget.messageBubble,
-                    ),
+                    child: IgnorePointer(child: widget.messageBubble),
                   ),
                 );
               },
@@ -185,7 +192,10 @@ class _IosMessagePopupScreenState extends State<_IosMessagePopupScreen> {
 
           // 3. Animated Popup Menu (animasi melebar ke kanan dan kiri)
           Positioned(
-            top: menuTop.clamp(topPadding + 10, screenSize.height - bottomPadding - menuHeight - 10),
+            top: menuTop.clamp(
+              topPadding + 10,
+              screenSize.height - bottomPadding - menuHeight - 10,
+            ),
             left: menuLeft,
             width: menuWidth,
             child: AnimatedBuilder(
@@ -210,11 +220,10 @@ class _IosMessagePopupScreenState extends State<_IosMessagePopupScreen> {
 
                 return Transform(
                   transform: Matrix4.diagonal3Values(scaleX, scaleY, 1.0),
-                  alignment: fitsBelow ? Alignment.topCenter : Alignment.bottomCenter,
-                  child: Opacity(
-                    opacity: opacity,
-                    child: child,
-                  ),
+                  alignment: fitsBelow
+                      ? Alignment.topCenter
+                      : Alignment.bottomCenter,
+                  child: Opacity(opacity: opacity, child: child),
                 );
               },
               child: Stack(
@@ -240,17 +249,20 @@ class _IosMessagePopupScreenState extends State<_IosMessagePopupScreen> {
 
                   // Menu card container
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 12,
+                    ),
                     decoration: BoxDecoration(
                       color: const Color(0xFF2C2C2E),
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(
-                        color: Colors.white.withOpacity(0.12),
+                        color: Colors.white.withValues(alpha: 0.12),
                         width: 0.8,
                       ),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.45),
+                          color: Colors.black.withValues(alpha: 0.45),
                           blurRadius: 24,
                           spreadRadius: 2,
                           offset: const Offset(0, 10),
@@ -265,9 +277,12 @@ class _IosMessagePopupScreenState extends State<_IosMessagePopupScreen> {
                         if (widget.row2Actions.isNotEmpty) ...[
                           // Garis pembatas halus
                           Container(
-                            margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                            margin: const EdgeInsets.symmetric(
+                              vertical: 8,
+                              horizontal: 4,
+                            ),
                             height: 0.6,
-                            color: Colors.white.withOpacity(0.14),
+                            color: Colors.white.withValues(alpha: 0.14),
                           ),
                           // Baris 2
                           _buildActionRow(widget.row2Actions),
@@ -307,14 +322,18 @@ class _IosMessagePopupScreenState extends State<_IosMessagePopupScreen> {
                     Icon(
                       act.icon,
                       size: 22,
-                      color: act.isDestructive ? const Color(0xFFFF5252) : Colors.white,
+                      color: act.isDestructive
+                          ? const Color(0xFFFF5252)
+                          : Colors.white,
                     ),
                     const SizedBox(height: 6),
                     Text(
                       act.label,
                       style: TextStyle(
                         fontSize: 10.5,
-                        color: act.isDestructive ? const Color(0xFFFF5252) : Colors.white,
+                        color: act.isDestructive
+                            ? const Color(0xFFFF5252)
+                            : Colors.white,
                         fontWeight: FontWeight.w400,
                         height: 1.15,
                       ),

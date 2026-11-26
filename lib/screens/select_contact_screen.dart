@@ -40,7 +40,8 @@ class _SelectContactScreenState extends State<SelectContactScreen> {
     }
     if (roomId == null || roomId.isEmpty) {
       final prefs = await SharedPreferences.getInstance();
-      final myUsername = prefs.getString('username') ?? prefs.getString('user_id') ?? 'user';
+      final myUsername =
+          prefs.getString('username') ?? prefs.getString('user_id') ?? 'user';
       roomId = DatabaseHelper.generateUniqueRoomId(myUsername);
       await DatabaseHelper().saveContact(
         phone,
@@ -100,34 +101,32 @@ class _SelectContactScreenState extends State<SelectContactScreen> {
                 }
               });
             },
-          )
+          ),
         ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : filteredContacts.isEmpty
-              ? const Center(child: Text('Tidak ada kontak.'))
-              : ListView.builder(
-                  itemCount: filteredContacts.length,
-                  itemBuilder: (context, index) {
-                    final contact = filteredContacts[index];
-                    return Theme(
-                      data: Theme.of(context).copyWith(
-                        splashColor: primaryColor.withOpacity(0.15),
-                        highlightColor: Colors.black.withOpacity(0.08),
-                      ),
-                      child: ListTile(
-                        splashColor: primaryColor.withOpacity(0.15),
-                        leading: const CircleAvatar(
-                          child: Icon(Icons.person),
-                        ),
-                        title: Text(contact['saved_name']),
-                        subtitle: Text(contact['phone_number']),
-                        onTap: () => _startChat(contact),
-                      ),
-                    );
-                  },
-                ),
+          ? const Center(child: Text('Tidak ada kontak.'))
+          : ListView.builder(
+              itemCount: filteredContacts.length,
+              itemBuilder: (context, index) {
+                final contact = filteredContacts[index];
+                return Theme(
+                  data: Theme.of(context).copyWith(
+                    splashColor: primaryColor.withValues(alpha: 0.15),
+                    highlightColor: Colors.black.withValues(alpha: 0.08),
+                  ),
+                  child: ListTile(
+                    splashColor: primaryColor.withValues(alpha: 0.15),
+                    leading: const CircleAvatar(child: Icon(Icons.person)),
+                    title: Text(contact['saved_name']),
+                    subtitle: Text(contact['phone_number']),
+                    onTap: () => _startChat(contact),
+                  ),
+                );
+              },
+            ),
     );
   }
 }

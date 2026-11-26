@@ -952,23 +952,26 @@ class ApiService {
     }
   }
 
-    static Future<Map<String, dynamic>> getActiveCall(String callId) async {
+  static Future<Map<String, dynamic>> getActiveCall([String? callId]) async {
     try {
       final headers = await getAuthHeaders();
+      final url = (callId != null && callId.isNotEmpty)
+          ? '$baseUrl/calls/active?callId=$callId'
+          : '$baseUrl/calls/active';
       final response = await http.get(
-        Uri.parse('$baseUrl/calls/active?callId=$callId'),
+        Uri.parse(url),
         headers: headers,
       );
       if (response.statusCode == 200) {
         return {'success': true, 'data': jsonDecode(response.body)};
       } else {
-      final err = jsonDecode(response.body);
-      return {'success': false, 'message': err['message'] ?? 'Gagal mengambil active call'};
+        final err = jsonDecode(response.body);
+        return {'success': false, 'message': err['message'] ?? 'Gagal mengambil active call'};
+      }
+    } catch (e) {
+      return {'success': false, 'message': 'Connection error: $e'};
     }
-  } catch (e) {
-    return {'success': false, 'message': 'Connection error: $e'};
   }
-}
 
 static Future<Map<String, dynamic>> getCallToken(String callId) async {
   try {
@@ -1187,7 +1190,110 @@ static Future<Map<String, dynamic>> getCallToken(String callId) async {
     }
   }
 
-  static Future<Map<String, dynamic>> uploadMediaStory(String filePath, String caption) async {
+  static Future<Map<String, dynamic>> uploadVideoPost(
+    String caption,
+    String filePath, {
+    double? trimStart,
+    double? trimEnd,
+  }) async {
+    try {
+      final headers = await getAuthHeaders();
+      var request = http.MultipartRequest('POST', Uri.parse('$baseUrl/media/upload-post'));
+      request.headers.addAll(headers);
+      request.fields['caption'] = caption;
+      if (trimStart != null) request.fields['trim_start'] = trimStart.toString();
+      if (trimEnd != null) request.fields['trim_end'] = trimEnd.toString();
+      request.files.add(await http.MultipartFile.fromPath('file', filePath));
+
+      var streamedResponse = await request.send();
+      var response = await http.Response.fromStream(streamedResponse);
+      return jsonDecode(response.body);
+    } catch (e) {
+      return {'success': false, 'message': e.toString()};
+    }
+  }
+
+  static Future<Map<String, dynamic>> getVideoViewSettings() async {
+    try {
+      final headers = await getAuthHeaders();
+      final response = await http.get(
+        Uri.parse('$baseUrl/media/video-settings'),
+        headers: headers,
+      );
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      }
+      return {'success': false, 'message': 'Gagal mengambil pengaturan view video'};
+    } catch (e) {
+      return {'success': false, 'message': e.toString()};
+    }
+  }
+
+  static Future<Map<String, dynamic>> saveVideoViewSettings(Map<String, dynamic> settings) async {
+    try {
+      final headers = await getAuthHeaders();
+      headers['Content-Type'] = 'application/json';
+      final response = await http.post(
+        Uri.parse('$baseUrl/media/video-settings'),
+        headers: headers,
+        body: jsonEncode(settings),
+      );
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      }
+      return {'success': false, 'message': 'Gagal menyimpan pengaturan'};
+    } catch (e) {
+      return {'success': false, 'message': e.toString()};
+    }
+  }
+
+  static Future<Map<String, dynamic>> recordVideoView(int postId) async {
+    try {
+      final headers = await getAuthHeaders();
+      final response = await http.post(
+        Uri.parse('$baseUrl/media/posts/$postId/view'),
+        headers: headers,
+      );
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      }
+      return {'success': false, 'message': 'Gagal mencatat view'};
+    } catch (e) {
+      return {'success': false, 'message': e.toString()};
+    }
+  }
+
+  static Future<Map<String, dynamic>> getMediaVideos({
+    int limit = 10,
+    int offset = 0,
+    String? sort,
+    int? seed,
+  }) async {
+    try {
+      final headers = await getAuthHeaders();
+      final queryParams = <String, String>{
+        'limit': limit.toString(),
+        'offset': offset.toString(),
+      };
+      if (sort != null) queryParams['sort'] = sort;
+      if (seed != null) queryParams['seed'] = seed.toString();
+
+      final uri = Uri.parse('$baseUrl/media/videos').replace(queryParameters: queryParams);
+      final response = await http.get(uri, headers: headers);
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      }
+      return {'success': false, 'message': 'Gagal memuat video reels'};
+    } catch (e) {
+      return {'success': false, 'message': e.toString()};
+    }
+  }
+
+  static Future<Map<String, dynamic>> uploadMediaStory(
+    String filePath,
+    String caption, {
+    Function(double)? onProgress,
+  }) async {
     try {
       final headers = await getAuthHeaders();
       final privacyFields = await _getPrivacyFields();
@@ -1199,8 +1305,11 @@ static Future<Map<String, dynamic>> getCallToken(String callId) async {
       request.fields['allowedViewers'] = privacyFields['allowedViewers']!;
       request.files.add(await http.MultipartFile.fromPath('file', filePath));
 
+      onProgress?.call(0.5);
       var response = await request.send();
+      onProgress?.call(0.9);
       var responseString = await response.stream.bytesToString();
+      onProgress?.call(1.0);
       return {'success': response.statusCode == 200, 'data': jsonDecode(responseString)};
     } catch (e) {
       return {'success': false, 'message': e.toString()};
@@ -1230,12 +1339,15 @@ static Future<Map<String, dynamic>> getCallToken(String callId) async {
     }
   }
 
-  static Future<Map<String, dynamic>> uploadPost(String caption, String? filePath) async {
+  static Future<Map<String, dynamic>> uploadPost(String caption, String? filePath, {String? poll}) async {
     try {
       final headers = await getAuthHeaders();
       var request = http.MultipartRequest('POST', Uri.parse('$baseUrl/media/upload-post'));
       request.headers.addAll(headers);
       request.fields['caption'] = caption;
+      if (poll != null && poll.isNotEmpty) {
+        request.fields['poll'] = poll;
+      }
       
       if (filePath != null) {
         request.files.add(await http.MultipartFile.fromPath('file', filePath));
@@ -1244,6 +1356,23 @@ static Future<Map<String, dynamic>> getCallToken(String callId) async {
       var response = await request.send();
       var responseString = await response.stream.bytesToString();
       return {'success': response.statusCode == 200, 'data': jsonDecode(responseString)};
+    } catch (e) {
+      return {'success': false, 'message': e.toString()};
+    }
+  }
+
+  static Future<Map<String, dynamic>> votePostPoll(int postId, int optionId) async {
+    try {
+      final headers = await getAuthHeaders();
+      final response = await http.post(
+        Uri.parse('$baseUrl/v1/posts/$postId/poll/vote'),
+        headers: headers,
+        body: jsonEncode({'optionId': optionId}),
+      );
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      }
+      return {'success': false, 'message': 'Gagal mencatat suara'};
     } catch (e) {
       return {'success': false, 'message': e.toString()};
     }

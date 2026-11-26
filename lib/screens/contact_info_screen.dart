@@ -57,12 +57,14 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
   bool _isCurrentUserCreator = false;
   bool get _canEditGroupInfo =>
       widget.isGroup &&
-      (_isCurrentUserAdmin || (_groupData?['edit_info_permission'] ?? 'admins_only') == 'all');
+      (_isCurrentUserAdmin ||
+          (_groupData?['edit_info_permission'] ?? 'admins_only') == 'all');
 
   @override
   void initState() {
     super.initState();
-    _displayName = widget.displayName ?? (widget.isGroup ? 'Grup' : widget.phone);
+    _displayName =
+        widget.displayName ?? (widget.isGroup ? 'Grup' : widget.phone);
     _profilePic = widget.profilePic;
     _resolvedRoomId = widget.roomId;
     _loadData();
@@ -117,7 +119,8 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
       }
     }
 
-    if (localMatch != null && (localMatch['saved_name'] ?? '').toString().isNotEmpty) {
+    if (localMatch != null &&
+        (localMatch['saved_name'] ?? '').toString().isNotEmpty) {
       _displayName = localMatch['saved_name'];
       _isSavedLocally = true;
     }
@@ -156,7 +159,10 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
     }
   }
 
-  Future<void> _loadGroupDataAndMedia(String groupId, Map<String, String> localContactsMap) async {
+  Future<void> _loadGroupDataAndMedia(
+    String groupId,
+    Map<String, String> localContactsMap,
+  ) async {
     setState(() {
       _isLoadingMedia = true;
       _isLoadingMembers = true;
@@ -173,7 +179,8 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
         _groupData = g;
         _displayName = g['name'] ?? _displayName;
         _about = g['description'] ?? '';
-        if (g['profile_pic'] != null && g['profile_pic'].toString().isNotEmpty) {
+        if (g['profile_pic'] != null &&
+            g['profile_pic'].toString().isNotEmpty) {
           _profilePic = g['profile_pic'];
         }
 
@@ -186,7 +193,9 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
 
       // 2. Ambil media grup dari messages
       final msgRes = await ApiService.getGroupMessages(cleanId);
-      if (rawMembers.isEmpty && msgRes['success'] == true && msgRes['data'] != null) {
+      if (rawMembers.isEmpty &&
+          msgRes['success'] == true &&
+          msgRes['data'] != null) {
         rawMembers = msgRes['data']['members'] ?? [];
       }
 
@@ -202,7 +211,8 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
           memberDisplayName = 'Anda';
         } else if (localName != null && localName.trim().isNotEmpty) {
           memberDisplayName = localName.trim();
-        } else if (m['name'] != null && m['name'].toString().trim().isNotEmpty) {
+        } else if (m['name'] != null &&
+            m['name'].toString().trim().isNotEmpty) {
           memberDisplayName = m['name'].toString().trim();
         } else if (normPhone.isNotEmpty) {
           memberDisplayName = normPhone;
@@ -210,8 +220,11 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
           memberDisplayName = 'Anggota Grup';
         }
 
-        final bool isCreator = m['is_creator'] == true || (_groupData != null && m['id'] == _groupData!['created_by']);
-        final bool isAdmin = m['is_admin'] == true || m['role'] == 'admin' || isCreator;
+        final bool isCreator =
+            m['is_creator'] == true ||
+            (_groupData != null && m['id'] == _groupData!['created_by']);
+        final bool isAdmin =
+            m['is_admin'] == true || m['role'] == 'admin' || isCreator;
 
         parsedMembers.add({
           'id': m['id'],
@@ -239,22 +252,28 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
         if (b['is_creator'] == true && a['is_creator'] != true) return 1;
         if (a['is_admin'] == true && b['is_admin'] != true) return -1;
         if (b['is_admin'] == true && a['is_admin'] != true) return 1;
-        return (a['display_name'] as String)
-            .toLowerCase()
-            .compareTo((b['display_name'] as String).toLowerCase());
+        return (a['display_name'] as String).toLowerCase().compareTo(
+          (b['display_name'] as String).toLowerCase(),
+        );
       });
 
       // Parse Media
       List<Map<String, dynamic>> media = [];
       if (msgRes['success'] == true && msgRes['data'] != null) {
         final List msgs = msgRes['data']['messages'] ?? [];
-        media = msgs.where((m) {
-          final type = m['media_type'];
-          final url = m['media_url'];
-          return url != null &&
-              url.toString().isNotEmpty &&
-              (type == 'image' || type == 'video' || type == 'file' || type == 'audio');
-        }).map((m) => Map<String, dynamic>.from(m)).toList();
+        media = msgs
+            .where((m) {
+              final type = m['media_type'];
+              final url = m['media_url'];
+              return url != null &&
+                  url.toString().isNotEmpty &&
+                  (type == 'image' ||
+                      type == 'video' ||
+                      type == 'file' ||
+                      type == 'audio');
+            })
+            .map((m) => Map<String, dynamic>.from(m))
+            .toList();
       }
 
       if (mounted) {
@@ -289,13 +308,19 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
 
       if (res['success'] == true && res['data'] != null) {
         final List msgs = res['data']['messages'] ?? [];
-        final media = msgs.where((m) {
-          final type = m['media_type'];
-          final url = m['media_url'];
-          return url != null &&
-              url.toString().isNotEmpty &&
-              (type == 'image' || type == 'video' || type == 'file' || type == 'audio');
-        }).map((m) => Map<String, dynamic>.from(m)).toList();
+        final media = msgs
+            .where((m) {
+              final type = m['media_type'];
+              final url = m['media_url'];
+              return url != null &&
+                  url.toString().isNotEmpty &&
+                  (type == 'image' ||
+                      type == 'video' ||
+                      type == 'file' ||
+                      type == 'audio');
+            })
+            .map((m) => Map<String, dynamic>.from(m))
+            .toList();
 
         if (mounted) {
           setState(() {
@@ -320,7 +345,9 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
       builder: (ctx) {
         return AlertDialog(
           backgroundColor: Colors.white,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(15),
+          ),
           title: const Text(
             'Edit Nama Kontak',
             style: TextStyle(color: _primaryColor, fontWeight: FontWeight.bold),
@@ -345,12 +372,18 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
             ElevatedButton(
               style: ElevatedButton.styleFrom(
                 backgroundColor: _primaryColor,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
               ),
               onPressed: () async {
                 final newName = nameController.text.trim();
                 if (newName.isNotEmpty) {
-                  await DatabaseHelper().saveContact(widget.phone, newName, isRegistered: true);
+                  await DatabaseHelper().saveContact(
+                    widget.phone,
+                    newName,
+                    isRegistered: true,
+                  );
                   if (ctx.mounted) {
                     Navigator.pop(ctx);
                   }
@@ -360,12 +393,17 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                       _isSavedLocally = true;
                     });
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Nama kontak berhasil disimpan')),
+                      const SnackBar(
+                        content: Text('Nama kontak berhasil disimpan'),
+                      ),
                     );
                   }
                 }
               },
-              child: const Text('Simpan', style: TextStyle(color: Colors.white)),
+              child: const Text(
+                'Simpan',
+                style: TextStyle(color: Colors.white),
+              ),
             ),
           ],
         );
@@ -388,9 +426,15 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
             isGroup: widget.isGroup,
           ),
           transitionsBuilder: (context, animation, secondaryAnimation, child) {
-            final curved = CurvedAnimation(parent: animation, curve: Curves.easeOutCubic);
+            final curved = CurvedAnimation(
+              parent: animation,
+              curve: Curves.easeOutCubic,
+            );
             return SlideTransition(
-              position: Tween<Offset>(begin: const Offset(1.0, 0.0), end: Offset.zero).animate(curved),
+              position: Tween<Offset>(
+                begin: const Offset(1.0, 0.0),
+                end: Offset.zero,
+              ).animate(curved),
               child: FadeTransition(opacity: curved, child: child),
             );
           },
@@ -400,7 +444,8 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
       String? localRoomId = await DatabaseHelper().getLocalRoomId(widget.phone);
       if (localRoomId == null || localRoomId.isEmpty) {
         final prefs = await SharedPreferences.getInstance();
-        final myUsername = prefs.getString('username') ?? prefs.getString('user_id') ?? 'user';
+        final myUsername =
+            prefs.getString('username') ?? prefs.getString('user_id') ?? 'user';
         localRoomId = DatabaseHelper.generateUniqueRoomId(myUsername);
         await DatabaseHelper().saveContact(
           widget.phone,
@@ -423,13 +468,20 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
               profilePic: _profilePic,
               isGroup: widget.isGroup,
             ),
-            transitionsBuilder: (context, animation, secondaryAnimation, child) {
-              final curved = CurvedAnimation(parent: animation, curve: Curves.easeOutCubic);
-              return SlideTransition(
-                position: Tween<Offset>(begin: const Offset(1.0, 0.0), end: Offset.zero).animate(curved),
-                child: FadeTransition(opacity: curved, child: child),
-              );
-            },
+            transitionsBuilder:
+                (context, animation, secondaryAnimation, child) {
+                  final curved = CurvedAnimation(
+                    parent: animation,
+                    curve: Curves.easeOutCubic,
+                  );
+                  return SlideTransition(
+                    position: Tween<Offset>(
+                      begin: const Offset(1.0, 0.0),
+                      end: Offset.zero,
+                    ).animate(curved),
+                    child: FadeTransition(opacity: curved, child: child),
+                  );
+                },
           ),
         );
       }
@@ -448,13 +500,22 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
           child: Wrap(
             children: [
               ListTile(
-                leading: const Icon(Icons.call_rounded, color: Colors.green, size: 28),
+                leading: const Icon(
+                  Icons.call_rounded,
+                  color: Colors.green,
+                  size: 28,
+                ),
                 title: Text(
                   widget.isGroup ? 'Panggilan Suara Grup' : 'Panggilan Suara',
-                  style: const TextStyle(color: _primaryColor, fontWeight: FontWeight.bold),
+                  style: const TextStyle(
+                    color: _primaryColor,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 subtitle: Text(
-                  widget.isGroup ? '${_groupMembers.length} Anggota Grup' : widget.phone,
+                  widget.isGroup
+                      ? '${_groupMembers.length} Anggota Grup'
+                      : widget.phone,
                   style: const TextStyle(color: Colors.grey),
                 ),
                 onTap: () {
@@ -469,13 +530,22 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
               ),
               const Divider(color: _dividerColor, height: 1),
               ListTile(
-                leading: const Icon(Icons.videocam_rounded, color: Colors.teal, size: 28),
+                leading: const Icon(
+                  Icons.videocam_rounded,
+                  color: Colors.teal,
+                  size: 28,
+                ),
                 title: Text(
                   widget.isGroup ? 'Panggilan Video Grup' : 'Panggilan Video',
-                  style: const TextStyle(color: _primaryColor, fontWeight: FontWeight.bold),
+                  style: const TextStyle(
+                    color: _primaryColor,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 subtitle: Text(
-                  widget.isGroup ? '${_groupMembers.length} Anggota Grup' : widget.phone,
+                  widget.isGroup
+                      ? '${_groupMembers.length} Anggota Grup'
+                      : widget.phone,
                   style: const TextStyle(color: Colors.grey),
                 ),
                 onTap: () {
@@ -501,14 +571,21 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
       PageRouteBuilder(
         transitionDuration: const Duration(milliseconds: 320),
         reverseTransitionDuration: const Duration(milliseconds: 280),
-        pageBuilder: (context, animation, secondaryAnimation) => RoomMediaGalleryScreen(
-          chatTitle: _displayName,
-          mediaList: _mediaList,
-        ),
+        pageBuilder: (context, animation, secondaryAnimation) =>
+            RoomMediaGalleryScreen(
+              chatTitle: _displayName,
+              mediaList: _mediaList,
+            ),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          final curved = CurvedAnimation(parent: animation, curve: Curves.easeOutCubic);
+          final curved = CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+          );
           return SlideTransition(
-            position: Tween<Offset>(begin: const Offset(1.0, 0.0), end: Offset.zero).animate(curved),
+            position: Tween<Offset>(
+              begin: const Offset(1.0, 0.0),
+              end: Offset.zero,
+            ).animate(curved),
             child: FadeTransition(opacity: curved, child: child),
           );
         },
@@ -538,14 +615,18 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
             PopupMenuButton<String>(
               icon: const Icon(Icons.more_horiz, color: Colors.white),
               color: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
               onSelected: (val) {
                 if (val == 'edit') {
                   _showEditContactDialog();
                 } else if (val == 'copy') {
                   Clipboard.setData(ClipboardData(text: widget.phone));
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Nomor telepon disalin ke clipboard')),
+                    const SnackBar(
+                      content: Text('Nomor telepon disalin ke clipboard'),
+                    ),
                   );
                 }
               },
@@ -556,7 +637,10 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                     children: [
                       Icon(Icons.edit_outlined, color: _primaryColor, size: 20),
                       SizedBox(width: 10),
-                      Text('Edit Nama Kontak', style: TextStyle(color: Colors.black87)),
+                      Text(
+                        'Edit Nama Kontak',
+                        style: TextStyle(color: Colors.black87),
+                      ),
                     ],
                   ),
                 ),
@@ -566,7 +650,10 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                     children: [
                       Icon(Icons.copy_outlined, color: _primaryColor, size: 20),
                       SizedBox(width: 10),
-                      Text('Salin Nomor', style: TextStyle(color: Colors.black87)),
+                      Text(
+                        'Salin Nomor',
+                        style: TextStyle(color: Colors.black87),
+                      ),
                     ],
                   ),
                 ),
@@ -592,11 +679,16 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                     onTap: () {
                       Clipboard.setData(ClipboardData(text: widget.phone));
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Nomor telepon disalin ke clipboard')),
+                        const SnackBar(
+                          content: Text('Nomor telepon disalin ke clipboard'),
+                        ),
                       );
                     },
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 16,
+                      ),
                       child: Row(
                         children: [
                           const Text(
@@ -617,19 +709,34 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                             ),
                           ),
                           const SizedBox(width: 8),
-                          Icon(Icons.copy_rounded, color: Colors.grey.shade400, size: 18),
+                          Icon(
+                            Icons.copy_rounded,
+                            color: Colors.grey.shade400,
+                            size: 18,
+                          ),
                         ],
                       ),
                     ),
                   ),
-                  const Divider(height: 1, thickness: 1, color: _dividerColor, indent: 20, endIndent: 20),
+                  const Divider(
+                    height: 1,
+                    thickness: 1,
+                    color: _dividerColor,
+                    indent: 20,
+                    endIndent: 20,
+                  ),
                 ],
 
                 // 3. Menu Item: Deskripsi
                 InkWell(
-                  onTap: (widget.isGroup && _canEditGroupInfo) ? _editGroupDescription : null,
+                  onTap: (widget.isGroup && _canEditGroupInfo)
+                      ? _editGroupDescription
+                      : null,
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 16,
+                    ),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
@@ -646,7 +753,9 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                           child: Text(
                             _about.isNotEmpty
                                 ? _about
-                                : (widget.isGroup ? 'Tambah deskripsi grup...' : 'Ada di Our Chat'),
+                                : (widget.isGroup
+                                      ? 'Tambah deskripsi grup...'
+                                      : 'Ada di Our Chat'),
                             style: TextStyle(
                               color: (_about.isEmpty && widget.isGroup)
                                   ? Colors.blue.shade700
@@ -673,13 +782,22 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                   ),
                 ),
 
-                const Divider(height: 1, thickness: 1, color: _dividerColor, indent: 20, endIndent: 20),
+                const Divider(
+                  height: 1,
+                  thickness: 1,
+                  color: _dividerColor,
+                  indent: 20,
+                  endIndent: 20,
+                ),
 
                 // 4. Menu Item: Media
                 InkWell(
                   onTap: _openMediaGallery,
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 14,
+                    ),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
@@ -697,19 +815,28 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                             const SizedBox(height: 2),
                             Text(
                               'Foto, video & dokumen',
-                              style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                              style: TextStyle(
+                                color: Colors.grey.shade500,
+                                fontSize: 12,
+                              ),
                             ),
                           ],
                         ),
                         const Spacer(),
                         if (_isLoadingMedia)
-                          const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                          const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
                         else if (imageAndVideos.isNotEmpty) ...[
                           Row(
                             mainAxisSize: MainAxisSize.min,
                             children: imageAndVideos.map((m) {
                               final isVideo = m['media_type'] == 'video';
-                              final url = ApiService.getServerUrl(m['media_url'] ?? '');
+                              final url = ApiService.getServerUrl(
+                                m['media_url'] ?? '',
+                              );
                               return Container(
                                 margin: const EdgeInsets.only(left: 6),
                                 width: 44,
@@ -726,17 +853,29 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                                       isVideo
                                           ? Container(
                                               color: Colors.black54,
-                                              child: const Icon(Icons.videocam, color: Colors.white70, size: 20),
+                                              child: const Icon(
+                                                Icons.videocam,
+                                                color: Colors.white70,
+                                                size: 20,
+                                              ),
                                             )
                                           : CachedNetworkImage(
                                               imageUrl: url,
                                               fit: BoxFit.cover,
-                                              errorWidget: (context, url, error) =>
-                                                  const Icon(Icons.image, color: Colors.black26),
+                                              errorWidget:
+                                                  (context, url, error) =>
+                                                      const Icon(
+                                                        Icons.image,
+                                                        color: Colors.black26,
+                                                      ),
                                             ),
                                       if (isVideo)
                                         const Center(
-                                          child: Icon(Icons.play_circle_fill, size: 16, color: Colors.white),
+                                          child: Icon(
+                                            Icons.play_circle_fill,
+                                            size: 16,
+                                            color: Colors.white,
+                                          ),
                                         ),
                                     ],
                                   ),
@@ -748,11 +887,18 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                         ] else ...[
                           Text(
                             '${_mediaList.length} file',
-                            style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
+                            style: TextStyle(
+                              color: Colors.grey.shade500,
+                              fontSize: 13,
+                            ),
                           ),
                           const SizedBox(width: 6),
                         ],
-                        Icon(Icons.chevron_right_rounded, color: Colors.grey.shade400, size: 20),
+                        Icon(
+                          Icons.chevron_right_rounded,
+                          color: Colors.grey.shade400,
+                          size: 20,
+                        ),
                       ],
                     ),
                   ),
@@ -760,14 +906,27 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
 
                 // 4.5 Khusus Admin Grup: Pengaturan Grup
                 if (widget.isGroup && _isCurrentUserAdmin) ...[
-                  const Divider(height: 1, thickness: 1, color: _dividerColor, indent: 20, endIndent: 20),
+                  const Divider(
+                    height: 1,
+                    thickness: 1,
+                    color: _dividerColor,
+                    indent: 20,
+                    endIndent: 20,
+                  ),
                   InkWell(
                     onTap: _showGroupSettingsModal,
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 16,
+                      ),
                       child: Row(
                         children: [
-                          const Icon(Icons.tune_rounded, color: _primaryColor, size: 22),
+                          const Icon(
+                            Icons.tune_rounded,
+                            color: _primaryColor,
+                            size: 22,
+                          ),
                           const SizedBox(width: 14),
                           Expanded(
                             child: Column(
@@ -784,12 +943,19 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                                 const SizedBox(height: 2),
                                 Text(
                                   'Izin edit info & kirim pesan',
-                                  style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                                  style: TextStyle(
+                                    color: Colors.grey.shade600,
+                                    fontSize: 12,
+                                  ),
                                 ),
                               ],
                             ),
                           ),
-                          Icon(Icons.chevron_right_rounded, color: Colors.grey.shade400, size: 20),
+                          Icon(
+                            Icons.chevron_right_rounded,
+                            color: Colors.grey.shade400,
+                            size: 20,
+                          ),
                         ],
                       ),
                     ),
@@ -803,7 +969,12 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                   const Divider(height: 1, thickness: 1, color: _dividerColor),
 
                   Padding(
-                    padding: const EdgeInsets.only(left: 20, right: 12, top: 14, bottom: 6),
+                    padding: const EdgeInsets.only(
+                      left: 20,
+                      right: 12,
+                      top: 14,
+                      bottom: 6,
+                    ),
                     child: Row(
                       children: [
                         Text(
@@ -820,10 +991,22 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                             style: TextButton.styleFrom(
                               foregroundColor: _primaryColor,
                               visualDensity: VisualDensity.compact,
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
                             ),
-                            icon: const Icon(Icons.person_add_alt_1_rounded, size: 18),
-                            label: const Text('Tambah', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                            icon: const Icon(
+                              Icons.person_add_alt_1_rounded,
+                              size: 18,
+                            ),
+                            label: const Text(
+                              'Tambah',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                              ),
+                            ),
                             onPressed: _showAddMembersModal,
                           ),
                       ],
@@ -833,11 +1016,16 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                   if (_isLoadingMembers)
                     const Padding(
                       padding: EdgeInsets.symmetric(vertical: 24),
-                      child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                      child: Center(
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
                     )
                   else if (_groupMembers.isEmpty)
                     const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 12,
+                      ),
                       child: Text(
                         'Belum ada data anggota grup',
                         style: TextStyle(color: Colors.grey, fontSize: 14),
@@ -860,7 +1048,11 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                     child: const Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.chat_bubble_outline_rounded, color: _primaryColor, size: 22),
+                        Icon(
+                          Icons.chat_bubble_outline_rounded,
+                          color: _primaryColor,
+                          size: 22,
+                        ),
                         SizedBox(width: 10),
                         Text(
                           'Kirim Pesan',
@@ -886,7 +1078,11 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                     child: const Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.call_outlined, color: _primaryColor, size: 22),
+                        Icon(
+                          Icons.call_outlined,
+                          color: _primaryColor,
+                          size: 22,
+                        ),
                         SizedBox(width: 10),
                         Text(
                           'Panggilan Suara dan Video',
@@ -912,7 +1108,11 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                       child: const Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.exit_to_app_rounded, color: Colors.redAccent, size: 22),
+                          Icon(
+                            Icons.exit_to_app_rounded,
+                            color: Colors.redAccent,
+                            size: 22,
+                          ),
                           SizedBox(width: 10),
                           Text(
                             'Keluar dari Grup',
@@ -934,19 +1134,28 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
             ),
     );
   }
+
   Future<void> _pickAndUploadGroupPhoto() async {
-    final cleanId = (_resolvedRoomId ?? widget.roomId ?? '').replaceFirst('group_', '');
+    final cleanId = (_resolvedRoomId ?? widget.roomId ?? '').replaceFirst(
+      'group_',
+      '',
+    );
     if (cleanId.isEmpty) return;
 
     try {
       final picker = ImagePicker();
-      final picked = await picker.pickImage(source: ImageSource.gallery, maxWidth: 800, maxHeight: 800, imageQuality: 85);
+      final picked = await picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 800,
+        maxHeight: 800,
+        imageQuality: 85,
+      );
       if (picked == null) return;
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Mengunggah foto grup...')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Mengunggah foto grup...')));
 
       final res = await ApiService.uploadGroupProfilePic(cleanId, picked.path);
       if (res['success'] == true) {
@@ -955,13 +1164,19 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
         });
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Foto grup berhasil diperbarui!'), backgroundColor: Colors.green),
+            const SnackBar(
+              content: Text('Foto grup berhasil diperbarui!'),
+              backgroundColor: Colors.green,
+            ),
           );
         }
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(res['message'] ?? 'Gagal mengunggah foto grup'), backgroundColor: Colors.red),
+            SnackBar(
+              content: Text(res['message'] ?? 'Gagal mengunggah foto grup'),
+              backgroundColor: Colors.red,
+            ),
           );
         }
       }
@@ -971,7 +1186,10 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
   }
 
   Future<void> _editGroupName() async {
-    final cleanId = (_resolvedRoomId ?? widget.roomId ?? '').replaceFirst('group_', '');
+    final cleanId = (_resolvedRoomId ?? widget.roomId ?? '').replaceFirst(
+      'group_',
+      '',
+    );
     if (cleanId.isEmpty) return;
 
     final controller = TextEditingController(text: _displayName);
@@ -980,7 +1198,10 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
     await showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Ubah Nama Grup', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+        title: const Text(
+          'Ubah Nama Grup',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+        ),
         content: Form(
           key: formKey,
           child: TextFormField(
@@ -991,7 +1212,9 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
               labelText: 'Nama Grup',
               hintText: 'Ketik nama grup baru...',
             ),
-            validator: (val) => (val == null || val.trim().isEmpty) ? 'Nama tidak boleh kosong' : null,
+            validator: (val) => (val == null || val.trim().isEmpty)
+                ? 'Nama tidak boleh kosong'
+                : null,
           ),
         ),
         actions: [
@@ -1000,24 +1223,38 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
             child: const Text('Batal'),
           ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: _primaryColor, foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _primaryColor,
+              foregroundColor: Colors.white,
+            ),
             onPressed: () async {
               if (formKey.currentState?.validate() != true) return;
               final newName = controller.text.trim();
               Navigator.pop(ctx);
 
-              final res = await ApiService.updateGroupInfo(cleanId, name: newName);
+              final res = await ApiService.updateGroupInfo(
+                cleanId,
+                name: newName,
+              );
               if (res['success'] == true) {
                 setState(() => _displayName = newName);
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Nama grup berhasil diubah!'), backgroundColor: Colors.green),
+                    const SnackBar(
+                      content: Text('Nama grup berhasil diubah!'),
+                      backgroundColor: Colors.green,
+                    ),
                   );
                 }
               } else {
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text(res['message'] ?? 'Gagal mengubah nama grup'), backgroundColor: Colors.red),
+                    SnackBar(
+                      content: Text(
+                        res['message'] ?? 'Gagal mengubah nama grup',
+                      ),
+                      backgroundColor: Colors.red,
+                    ),
                   );
                 }
               }
@@ -1030,7 +1267,10 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
   }
 
   Future<void> _editGroupDescription() async {
-    final cleanId = (_resolvedRoomId ?? widget.roomId ?? '').replaceFirst('group_', '');
+    final cleanId = (_resolvedRoomId ?? widget.roomId ?? '').replaceFirst(
+      'group_',
+      '',
+    );
     if (cleanId.isEmpty) return;
 
     final controller = TextEditingController(text: _about);
@@ -1038,7 +1278,10 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
     await showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Deskripsi Grup', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+        title: const Text(
+          'Deskripsi Grup',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+        ),
         content: TextField(
           controller: controller,
           maxLines: 4,
@@ -1054,23 +1297,37 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
             child: const Text('Batal'),
           ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: _primaryColor, foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _primaryColor,
+              foregroundColor: Colors.white,
+            ),
             onPressed: () async {
               final newDesc = controller.text.trim();
               Navigator.pop(ctx);
 
-              final res = await ApiService.updateGroupInfo(cleanId, description: newDesc);
+              final res = await ApiService.updateGroupInfo(
+                cleanId,
+                description: newDesc,
+              );
               if (res['success'] == true) {
                 setState(() => _about = newDesc);
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Deskripsi grup berhasil diubah!'), backgroundColor: Colors.green),
+                    const SnackBar(
+                      content: Text('Deskripsi grup berhasil diubah!'),
+                      backgroundColor: Colors.green,
+                    ),
                   );
                 }
               } else {
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text(res['message'] ?? 'Gagal mengubah deskripsi grup'), backgroundColor: Colors.red),
+                    SnackBar(
+                      content: Text(
+                        res['message'] ?? 'Gagal mengubah deskripsi grup',
+                      ),
+                      backgroundColor: Colors.red,
+                    ),
                   );
                 }
               }
@@ -1083,7 +1340,10 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
   }
 
   Future<void> _showGroupSettingsModal() async {
-    final cleanId = (_resolvedRoomId ?? widget.roomId ?? '').replaceFirst('group_', '');
+    final cleanId = (_resolvedRoomId ?? widget.roomId ?? '').replaceFirst(
+      'group_',
+      '',
+    );
     if (cleanId.isEmpty) return;
 
     String editInfoPerm = _groupData?['edit_info_permission'] ?? 'admins_only';
@@ -1091,7 +1351,9 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
 
     await showModalBottomSheet(
       context: context,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setModalState) => SafeArea(
           child: Padding(
@@ -1104,21 +1366,40 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                   child: Container(
                     width: 40,
                     height: 4,
-                    decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2)),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 16),
-                const Text('Pengaturan Grup', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _primaryColor)),
+                const Text(
+                  'Pengaturan Grup',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: _primaryColor,
+                  ),
+                ),
                 const SizedBox(height: 4),
-                Text('Hanya Admin yang dapat mengubah izin grup ini.', style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+                Text(
+                  'Hanya Admin yang dapat mengubah izin grup ini.',
+                  style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+                ),
                 const SizedBox(height: 16),
                 const Divider(height: 1),
 
                 // Edit Info Setting
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.edit_note_rounded, color: _primaryColor),
-                  title: const Text('Edit info grup', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+                  leading: const Icon(
+                    Icons.edit_note_rounded,
+                    color: _primaryColor,
+                  ),
+                  title: const Text(
+                    'Edit info grup',
+                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                  ),
                   subtitle: Text(
                     editInfoPerm == 'all' ? 'Semua anggota' : 'Hanya admin',
                     style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
@@ -1128,11 +1409,15 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                     final selected = await _showPermissionPicker(
                       ctx,
                       title: 'Siapa yang dapat mengedit info grup?',
-                      subtitle: 'Memilih siapa yang dapat mengubah nama, ikon, dan deskripsi grup.',
+                      subtitle:
+                          'Memilih siapa yang dapat mengubah nama, ikon, dan deskripsi grup.',
                       currentValue: editInfoPerm,
                     );
                     if (selected != null && selected != editInfoPerm) {
-                      final res = await ApiService.updateGroupInfo(cleanId, editInfoPermission: selected);
+                      final res = await ApiService.updateGroupInfo(
+                        cleanId,
+                        editInfoPermission: selected,
+                      );
                       if (res['success'] == true) {
                         setModalState(() => editInfoPerm = selected);
                         setState(() {
@@ -1147,8 +1432,14 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                 // Send Messages Setting
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.chat_bubble_outline_rounded, color: _primaryColor),
-                  title: const Text('Kirim pesan', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+                  leading: const Icon(
+                    Icons.chat_bubble_outline_rounded,
+                    color: _primaryColor,
+                  ),
+                  title: const Text(
+                    'Kirim pesan',
+                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                  ),
                   subtitle: Text(
                     sendMessagesPerm == 'all' ? 'Semua anggota' : 'Hanya admin',
                     style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
@@ -1158,11 +1449,15 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                     final selected = await _showPermissionPicker(
                       ctx,
                       title: 'Siapa yang dapat mengirim pesan?',
-                      subtitle: 'Jika disetel ke Hanya Admin, anggota biasa tidak dapat mengirim pesan.',
+                      subtitle:
+                          'Jika disetel ke Hanya Admin, anggota biasa tidak dapat mengirim pesan.',
                       currentValue: sendMessagesPerm,
                     );
                     if (selected != null && selected != sendMessagesPerm) {
-                      final res = await ApiService.updateGroupInfo(cleanId, sendMessagesPermission: selected);
+                      final res = await ApiService.updateGroupInfo(
+                        cleanId,
+                        sendMessagesPermission: selected,
+                      );
                       if (res['success'] == true) {
                         setModalState(() => sendMessagesPerm = selected);
                         setState(() {
@@ -1181,7 +1476,8 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
     );
   }
 
-  Future<String?> _showPermissionPicker(BuildContext context, {
+  Future<String?> _showPermissionPicker(
+    BuildContext context, {
     required String title,
     required String subtitle,
     required String currentValue,
@@ -1191,12 +1487,18 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(
-          title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          title: Text(
+            title,
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+          ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(subtitle, style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+              Text(
+                subtitle,
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+              ),
               const SizedBox(height: 12),
               RadioListTile<String>(
                 title: const Text('Semua anggota'),
@@ -1217,9 +1519,15 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
             ],
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Batal')),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Batal'),
+            ),
             ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: _primaryColor, foregroundColor: Colors.white),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _primaryColor,
+                foregroundColor: Colors.white,
+              ),
               onPressed: () => Navigator.pop(ctx, selected),
               child: const Text('Simpan'),
             ),
@@ -1230,12 +1538,19 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
   }
 
   Future<void> _showAddMembersModal() async {
-    final cleanId = (_resolvedRoomId ?? widget.roomId ?? '').replaceFirst('group_', '');
+    final cleanId = (_resolvedRoomId ?? widget.roomId ?? '').replaceFirst(
+      'group_',
+      '',
+    );
     if (cleanId.isEmpty) return;
 
     final contacts = await DatabaseHelper().getContacts();
-    final existingUserIds = _groupMembers.map((m) => m['id']?.toString()).toSet();
-    final existingPhones = _groupMembers.map((m) => _normalizePhone(m['phone']?.toString())).toSet();
+    final existingUserIds = _groupMembers
+        .map((m) => m['id']?.toString())
+        .toSet();
+    final existingPhones = _groupMembers
+        .map((m) => _normalizePhone(m['phone']?.toString()))
+        .toSet();
 
     // Filter kontak yang belum tergabung di grup
     final available = contacts.where((c) {
@@ -1254,7 +1569,9 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setModalState) {
           final filtered = available.where((c) {
@@ -1272,22 +1589,41 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                 Container(
                   width: 40,
                   height: 4,
-                  decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2)),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
                 const SizedBox(height: 12),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('Tambah Peserta', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _primaryColor)),
-                    IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx)),
+                    const Text(
+                      'Tambah Peserta',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: _primaryColor,
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
                   ],
                 ),
                 TextField(
                   decoration: InputDecoration(
                     hintText: 'Cari kontak...',
                     prefixIcon: const Icon(Icons.search, size: 20),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 10,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
                     filled: true,
                     fillColor: Colors.grey.shade100,
                   ),
@@ -1296,7 +1632,12 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                 const SizedBox(height: 8),
                 Expanded(
                   child: filtered.isEmpty
-                      ? const Center(child: Text('Tidak ada kontak tersedia untuk ditambahkan', style: TextStyle(color: Colors.grey)))
+                      ? const Center(
+                          child: Text(
+                            'Tidak ada kontak tersedia untuk ditambahkan',
+                            style: TextStyle(color: Colors.grey),
+                          ),
+                        )
                       : ListView.builder(
                           itemCount: filtered.length,
                           itemBuilder: (_, i) {
@@ -1304,22 +1645,47 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                             final phone = c['phone_number']?.toString() ?? '';
                             final name = c['saved_name']?.toString() ?? phone;
                             final rawId = c['server_user_id'] ?? c['user_id'];
-                            final userId = int.tryParse(rawId?.toString() ?? '');
+                            final userId = int.tryParse(
+                              rawId?.toString() ?? '',
+                            );
 
                             return ListTile(
                               leading: CircleAvatar(
                                 backgroundColor: Colors.blue.shade100,
-                                child: Text(name.isNotEmpty ? name[0].toUpperCase() : '?', style: const TextStyle(fontWeight: FontWeight.bold, color: _primaryColor)),
+                                child: Text(
+                                  name.isNotEmpty ? name[0].toUpperCase() : '?',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: _primaryColor,
+                                  ),
+                                ),
                               ),
-                              title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
-                              subtitle: Text(phone, style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+                              title: Text(
+                                name,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              subtitle: Text(
+                                phone,
+                                style: TextStyle(
+                                  color: Colors.grey.shade600,
+                                  fontSize: 12,
+                                ),
+                              ),
                               trailing: Checkbox(
                                 activeColor: _primaryColor,
-                                value: userId != null && selectedUserIds.contains(userId),
+                                value:
+                                    userId != null &&
+                                    selectedUserIds.contains(userId),
                                 onChanged: (checked) {
                                   if (userId == null) {
                                     ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(content: Text('Kontak ini belum memiliki akun Our Chat')),
+                                      const SnackBar(
+                                        content: Text(
+                                          'Kontak ini belum memiliki akun Our Chat',
+                                        ),
+                                      ),
                                     );
                                     return;
                                   }
@@ -1356,27 +1722,50 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                           backgroundColor: Colors.green,
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
                         ),
                         onPressed: () async {
                           Navigator.pop(ctx);
-                          final res = await ApiService.addGroupMembers(cleanId, selectedUserIds.toList());
+                          final res = await ApiService.addGroupMembers(
+                            cleanId,
+                            selectedUserIds.toList(),
+                          );
                           if (res['success'] == true) {
                             if (mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text(res['message'] ?? 'Berhasil menambahkan anggota!'), backgroundColor: Colors.green),
+                                SnackBar(
+                                  content: Text(
+                                    res['message'] ??
+                                        'Berhasil menambahkan anggota!',
+                                  ),
+                                  backgroundColor: Colors.green,
+                                ),
                               );
                               _refreshGroupData(cleanId);
                             }
                           } else {
                             if (mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text(res['message'] ?? 'Gagal menambahkan anggota'), backgroundColor: Colors.red),
+                                SnackBar(
+                                  content: Text(
+                                    res['message'] ??
+                                        'Gagal menambahkan anggota',
+                                  ),
+                                  backgroundColor: Colors.red,
+                                ),
                               );
                             }
                           }
                         },
-                        child: Text('Tambah ${selectedUserIds.length} Peserta ke Grup', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                        child: Text(
+                          'Tambah ${selectedUserIds.length} Peserta ke Grup',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15,
+                          ),
+                        ),
                       ),
                     ),
                   ),
@@ -1389,7 +1778,10 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
   }
 
   Future<void> _showMemberActions(Map<String, dynamic> member) async {
-    final cleanId = (_resolvedRoomId ?? widget.roomId ?? '').replaceFirst('group_', '');
+    final cleanId = (_resolvedRoomId ?? widget.roomId ?? '').replaceFirst(
+      'group_',
+      '',
+    );
     if (cleanId.isEmpty) return;
 
     final isMe = member['is_me'] == true;
@@ -1401,7 +1793,9 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
 
     await showModalBottomSheet(
       context: context,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       builder: (ctx) => SafeArea(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
@@ -1411,37 +1805,90 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
               Container(
                 width: 40,
                 height: 4,
-                decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2)),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
               ),
               const SizedBox(height: 16),
               Row(
                 children: [
                   CircleAvatar(
                     radius: 24,
-                    backgroundColor: isTargetAdmin ? Colors.green.shade100 : Colors.blue.shade100,
-                    child: Text(name.isNotEmpty ? name[0].toUpperCase() : '?', style: const TextStyle(fontWeight: FontWeight.bold, color: _primaryColor, fontSize: 18)),
+                    backgroundColor: isTargetAdmin
+                        ? Colors.green.shade100
+                        : Colors.blue.shade100,
+                    child: Text(
+                      name.isNotEmpty ? name[0].toUpperCase() : '?',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: _primaryColor,
+                        fontSize: 18,
+                      ),
+                    ),
                   ),
                   const SizedBox(width: 14),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                        if (phone.isNotEmpty) Text(phone, style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+                        Text(
+                          name,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
+                        if (phone.isNotEmpty)
+                          Text(
+                            phone,
+                            style: TextStyle(
+                              color: Colors.grey.shade600,
+                              fontSize: 13,
+                            ),
+                          ),
                       ],
                     ),
                   ),
                   if (isTargetCreator)
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.blue.shade200)),
-                      child: Text('Pembuat Grup', style: TextStyle(fontSize: 11, color: Colors.blue.shade800, fontWeight: FontWeight.bold)),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.blue.shade200),
+                      ),
+                      child: Text(
+                        'Pembuat Grup',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.blue.shade800,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     )
                   else if (isTargetAdmin)
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(color: Colors.green.shade50, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.green.shade300)),
-                      child: Text('Admin Grup', style: TextStyle(fontSize: 11, color: Colors.green.shade800, fontWeight: FontWeight.bold)),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.green.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.green.shade300),
+                      ),
+                      child: Text(
+                        'Admin Grup',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.green.shade800,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ),
                 ],
               ),
@@ -1450,11 +1897,18 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
 
               if (!isMe && phone.isNotEmpty) ...[
                 ListTile(
-                  leading: const Icon(Icons.chat_bubble_outline_rounded, color: _primaryColor),
+                  leading: const Icon(
+                    Icons.chat_bubble_outline_rounded,
+                    color: _primaryColor,
+                  ),
                   title: Text('Chat Pribadi dengan $name'),
                   onTap: () {
                     Navigator.pop(ctx);
-                    _openPrivateChatWithMember(phone, name, member['profile_pic']);
+                    _openPrivateChatWithMember(
+                      phone,
+                      name,
+                      member['profile_pic'],
+                    );
                   },
                 ),
                 ListTile(
@@ -1474,48 +1928,104 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                 // Promote / Demote
                 if (!isTargetAdmin)
                   ListTile(
-                    leading: const Icon(Icons.shield_outlined, color: Colors.blueAccent),
+                    leading: const Icon(
+                      Icons.shield_outlined,
+                      color: Colors.blueAccent,
+                    ),
                     title: const Text('Jadikan Admin Grup'),
-                    subtitle: const Text('Anggota ini akan dapat mengubah info dan mengelola anggota grup'),
+                    subtitle: const Text(
+                      'Anggota ini akan dapat mengubah info dan mengelola anggota grup',
+                    ),
                     onTap: () async {
                       Navigator.pop(ctx);
                       final confirm = await _showConfirmDialog(
                         title: 'Jadikan Admin Grup?',
-                        message: 'Apakah Anda yakin ingin mengangkat $name menjadi Admin grup ini?',
+                        message:
+                            'Apakah Anda yakin ingin mengangkat $name menjadi Admin grup ini?',
                         confirmText: 'Jadikan Admin',
                         confirmColor: Colors.blueAccent,
                       );
                       if (confirm == true) {
-                        final res = await ApiService.updateGroupMemberRole(cleanId, memberId, role: 'admin');
+                        final res = await ApiService.updateGroupMemberRole(
+                          cleanId,
+                          memberId,
+                          role: 'admin',
+                        );
                         if (res['success'] == true) {
                           _refreshGroupData(cleanId);
-                          if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(res['message'] ?? '$name berhasil diangkat menjadi Admin!'), backgroundColor: Colors.green));
+                          if (mounted)
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  res['message'] ??
+                                      '$name berhasil diangkat menjadi Admin!',
+                                ),
+                                backgroundColor: Colors.green,
+                              ),
+                            );
                         } else {
-                          if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(res['message'] ?? 'Gagal mengubah status admin'), backgroundColor: Colors.red));
+                          if (mounted)
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  res['message'] ??
+                                      'Gagal mengubah status admin',
+                                ),
+                                backgroundColor: Colors.red,
+                              ),
+                            );
                         }
                       }
                     },
                   )
                 else if (isTargetAdmin && !isTargetCreator)
                   ListTile(
-                    leading: Icon(Icons.remove_moderator_outlined, color: Colors.orange.shade800),
+                    leading: Icon(
+                      Icons.remove_moderator_outlined,
+                      color: Colors.orange.shade800,
+                    ),
                     title: const Text('Hapus sebagai Admin'),
-                    subtitle: const Text('Cabut jabatan admin dan jadikan anggota biasa'),
+                    subtitle: const Text(
+                      'Cabut jabatan admin dan jadikan anggota biasa',
+                    ),
                     onTap: () async {
                       Navigator.pop(ctx);
                       final confirm = await _showConfirmDialog(
                         title: 'Hapus sebagai Admin?',
-                        message: 'Apakah Anda yakin ingin mencabut status admin dari $name?',
+                        message:
+                            'Apakah Anda yakin ingin mencabut status admin dari $name?',
                         confirmText: 'Cabut Admin',
                         confirmColor: Colors.orange.shade800,
                       );
                       if (confirm == true) {
-                        final res = await ApiService.updateGroupMemberRole(cleanId, memberId, role: 'member');
+                        final res = await ApiService.updateGroupMemberRole(
+                          cleanId,
+                          memberId,
+                          role: 'member',
+                        );
                         if (res['success'] == true) {
                           _refreshGroupData(cleanId);
-                          if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(res['message'] ?? 'Status admin berhasil dicabut'), backgroundColor: Colors.green));
+                          if (mounted)
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  res['message'] ??
+                                      'Status admin berhasil dicabut',
+                                ),
+                                backgroundColor: Colors.green,
+                              ),
+                            );
                         } else {
-                          if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(res['message'] ?? 'Gagal mencabut status admin'), backgroundColor: Colors.red));
+                          if (mounted)
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  res['message'] ??
+                                      'Gagal mencabut status admin',
+                                ),
+                                backgroundColor: Colors.red,
+                              ),
+                            );
                         }
                       }
                     },
@@ -1524,15 +2034,25 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                 // Kick / Keluarkan
                 if (isTargetCreator)
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
                     child: Row(
                       children: [
-                        const Icon(Icons.lock_outline, size: 16, color: Colors.grey),
+                        const Icon(
+                          Icons.lock_outline,
+                          size: 16,
+                          color: Colors.grey,
+                        ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
                             'Pembuat grup tidak dapat dikeluarkan atau dicabut status adminnya oleh admin lain.',
-                            style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                            style: TextStyle(
+                              color: Colors.grey.shade600,
+                              fontSize: 12,
+                            ),
                           ),
                         ),
                       ],
@@ -1540,24 +2060,55 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                   )
                 else
                   ListTile(
-                    leading: const Icon(Icons.person_remove_outlined, color: Colors.redAccent),
-                    title: Text('Keluarkan dari Grup', style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+                    leading: const Icon(
+                      Icons.person_remove_outlined,
+                      color: Colors.redAccent,
+                    ),
+                    title: Text(
+                      'Keluarkan dari Grup',
+                      style: const TextStyle(
+                        color: Colors.redAccent,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                     subtitle: Text('Keluarkan $name dari grup ini'),
                     onTap: () async {
                       Navigator.pop(ctx);
                       final confirm = await _showConfirmDialog(
                         title: 'Keluarkan Anggota?',
-                        message: 'Apakah Anda yakin ingin mengeluarkan $name dari grup ini?',
+                        message:
+                            'Apakah Anda yakin ingin mengeluarkan $name dari grup ini?',
                         confirmText: 'Keluarkan',
                         confirmColor: Colors.redAccent,
                       );
                       if (confirm == true) {
-                        final res = await ApiService.removeGroupMember(cleanId, memberId);
+                        final res = await ApiService.removeGroupMember(
+                          cleanId,
+                          memberId,
+                        );
                         if (res['success'] == true) {
                           _refreshGroupData(cleanId);
-                          if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(res['message'] ?? '$name berhasil dikeluarkan dari grup'), backgroundColor: Colors.green));
+                          if (mounted)
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  res['message'] ??
+                                      '$name berhasil dikeluarkan dari grup',
+                                ),
+                                backgroundColor: Colors.green,
+                              ),
+                            );
                         } else {
-                          if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(res['message'] ?? 'Gagal mengeluarkan anggota'), backgroundColor: Colors.red));
+                          if (mounted)
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  res['message'] ??
+                                      'Gagal mengeluarkan anggota',
+                                ),
+                                backgroundColor: Colors.red,
+                              ),
+                            );
                         }
                       }
                     },
@@ -1592,9 +2143,15 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
         title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
         content: Text(message),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Batal')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Batal'),
+          ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: confirmColor, foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: confirmColor,
+              foregroundColor: Colors.white,
+            ),
             onPressed: () => Navigator.pop(ctx, true),
             child: Text(confirmText),
           ),
@@ -1604,7 +2161,10 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
   }
 
   Future<void> _confirmLeaveGroup() async {
-    final cleanId = (_resolvedRoomId ?? widget.roomId ?? '').replaceFirst('group_', '');
+    final cleanId = (_resolvedRoomId ?? widget.roomId ?? '').replaceFirst(
+      'group_',
+      '',
+    );
     if (cleanId.isEmpty || _myUserId == null) return;
 
     final confirm = await _showConfirmDialog(
@@ -1621,14 +2181,20 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
       if (res['success'] == true) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Anda telah keluar dari grup'), backgroundColor: Colors.green),
+            const SnackBar(
+              content: Text('Anda telah keluar dari grup'),
+              backgroundColor: Colors.green,
+            ),
           );
           Navigator.of(context).popUntil((route) => route.isFirst);
         }
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(res['message'] ?? 'Gagal keluar dari grup'), backgroundColor: Colors.red),
+            SnackBar(
+              content: Text(res['message'] ?? 'Gagal keluar dari grup'),
+              backgroundColor: Colors.red,
+            ),
           );
         }
       }
@@ -1644,7 +2210,9 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
         children: [
           // Avatar rounded square border radius 15px with photo change option for groups
           GestureDetector(
-            onTap: (widget.isGroup && _canEditGroupInfo) ? _pickAndUploadGroupPhoto : null,
+            onTap: (widget.isGroup && _canEditGroupInfo)
+                ? _pickAndUploadGroupPhoto
+                : null,
             child: Stack(
               children: [
                 ClipRRect(
@@ -1654,7 +2222,9 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                     height: 72,
                     color: widget.isGroup
                         ? Colors.orange.shade100
-                        : (_isSavedLocally ? Colors.green.shade100 : Colors.blue.shade100),
+                        : (_isSavedLocally
+                              ? Colors.green.shade100
+                              : Colors.blue.shade100),
                     child: _profilePic != null && _profilePic!.isNotEmpty
                         ? CachedNetworkImage(
                             imageUrl: ApiService.getServerUrl(_profilePic!),
@@ -1662,7 +2232,8 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                             placeholder: (context, url) => const Center(
                               child: CircularProgressIndicator(strokeWidth: 2),
                             ),
-                            errorWidget: (context, url, error) => _buildAvatarFallback(),
+                            errorWidget: (context, url, error) =>
+                                _buildAvatarFallback(),
                           )
                         : _buildAvatarFallback(),
                   ),
@@ -1678,7 +2249,11 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                         shape: BoxShape.circle,
                         border: Border.all(color: Colors.white, width: 2),
                       ),
-                      child: const Icon(Icons.camera_alt_rounded, size: 14, color: Colors.white),
+                      child: const Icon(
+                        Icons.camera_alt_rounded,
+                        size: 14,
+                        color: Colors.white,
+                      ),
                     ),
                   ),
               ],
@@ -1706,7 +2281,11 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                     ),
                     if (widget.isGroup && _canEditGroupInfo)
                       IconButton(
-                        icon: const Icon(Icons.edit_outlined, color: _primaryColor, size: 20),
+                        icon: const Icon(
+                          Icons.edit_outlined,
+                          color: _primaryColor,
+                          size: 20,
+                        ),
                         tooltip: 'Ubah Nama Grup',
                         padding: const EdgeInsets.only(left: 6),
                         constraints: const BoxConstraints(),
@@ -1714,7 +2293,10 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                       ),
                   ],
                 ),
-                if (!widget.isGroup && _isSavedLocally && _originalName != null && _originalName != _displayName) ...[
+                if (!widget.isGroup &&
+                    _isSavedLocally &&
+                    _originalName != null &&
+                    _originalName != _displayName) ...[
                   const SizedBox(height: 4),
                   Text(
                     'Nama: $_originalName',
@@ -1725,13 +2307,17 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                 ],
                 const SizedBox(height: 4),
                 Text(
-                  widget.isGroup 
+                  widget.isGroup
                       ? 'Grup • ${_groupMembers.length} anggota'
                       : 'ID: ${_username ?? widget.phone}',
                   style: TextStyle(
-                    color: widget.isGroup ? Colors.orange.shade800 : Colors.grey.shade500, 
+                    color: widget.isGroup
+                        ? Colors.orange.shade800
+                        : Colors.grey.shade500,
                     fontSize: 13,
-                    fontWeight: widget.isGroup ? FontWeight.w600 : FontWeight.normal,
+                    fontWeight: widget.isGroup
+                        ? FontWeight.w600
+                        : FontWeight.normal,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -1747,12 +2333,18 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
   Widget _buildAvatarFallback() {
     if (widget.isGroup) {
       return Center(
-        child: Icon(Icons.group_rounded, size: 40, color: Colors.orange.shade800),
+        child: Icon(
+          Icons.group_rounded,
+          size: 40,
+          color: Colors.orange.shade800,
+        ),
       );
     }
     return Center(
       child: Text(
-        _displayName.isNotEmpty ? _displayName.substring(0, 1).toUpperCase() : '?',
+        _displayName.isNotEmpty
+            ? _displayName.substring(0, 1).toUpperCase()
+            : '?',
         style: TextStyle(
           color: _isSavedLocally ? Colors.green.shade800 : _primaryColor,
           fontSize: 32,
@@ -1776,27 +2368,30 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
       onTap: widget.isGroup ? () => _showMemberActions(member) : null,
       leading: CircleAvatar(
         radius: 20,
-        backgroundColor: isMe 
-            ? _primaryColor.withOpacity(0.12)
+        backgroundColor: isMe
+            ? _primaryColor.withValues(alpha: 0.12)
             : isAdmin
-                ? Colors.green.shade100
-                : isSaved
-                    ? Colors.teal.shade100
-                    : Colors.blue.shade100,
-        backgroundImage: (profilePic != null && profilePic.toString().isNotEmpty)
+            ? Colors.green.shade100
+            : isSaved
+            ? Colors.teal.shade100
+            : Colors.blue.shade100,
+        backgroundImage:
+            (profilePic != null && profilePic.toString().isNotEmpty)
             ? NetworkImage(ApiService.getServerUrl(profilePic.toString()))
             : null,
         child: (profilePic == null || profilePic.toString().isEmpty)
             ? Text(
-                displayName.isNotEmpty ? displayName.substring(0, 1).toUpperCase() : '?',
+                displayName.isNotEmpty
+                    ? displayName.substring(0, 1).toUpperCase()
+                    : '?',
                 style: TextStyle(
-                  color: isMe 
+                  color: isMe
                       ? _primaryColor
                       : isAdmin
-                          ? Colors.green.shade800
-                          : isSaved
-                              ? Colors.teal.shade800
-                              : _primaryColor,
+                      ? Colors.green.shade800
+                      : isSaved
+                      ? Colors.teal.shade800
+                      : _primaryColor,
                   fontWeight: FontWeight.bold,
                   fontSize: 16,
                 ),
@@ -1822,12 +2417,16 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
               margin: const EdgeInsets.only(left: 8),
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
-                color: _primaryColor.withOpacity(0.1),
+                color: _primaryColor.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(6),
               ),
               child: const Text(
                 'Anda',
-                style: TextStyle(fontSize: 11, color: _primaryColor, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  fontSize: 11,
+                  color: _primaryColor,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
           if (isCreator)
@@ -1841,7 +2440,11 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
               ),
               child: Text(
                 'Pembuat',
-                style: TextStyle(fontSize: 10, color: Colors.blue.shade800, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  fontSize: 10,
+                  color: Colors.blue.shade800,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             )
           else if (isAdmin)
@@ -1855,7 +2458,11 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
               ),
               child: Text(
                 'Admin Grup',
-                style: TextStyle(fontSize: 10, color: Colors.green.shade800, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  fontSize: 10,
+                  color: Colors.green.shade800,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
           if (!widget.isGroup && isSaved)
@@ -1868,7 +2475,11 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
               ),
               child: Text(
                 'Kontak',
-                style: TextStyle(fontSize: 10, color: Colors.green.shade800, fontWeight: FontWeight.w600),
+                style: TextStyle(
+                  fontSize: 10,
+                  color: Colors.green.shade800,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
         ],
@@ -1885,24 +2496,48 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
               children: [
                 if (!isMe && phone.isNotEmpty)
                   IconButton(
-                    icon: const Icon(Icons.chat_bubble_outline_rounded, color: _primaryColor, size: 20),
+                    icon: const Icon(
+                      Icons.chat_bubble_outline_rounded,
+                      color: _primaryColor,
+                      size: 20,
+                    ),
                     tooltip: 'Chat Pribadi',
-                    onPressed: () => _openPrivateChatWithMember(phone, displayName, profilePic),
+                    onPressed: () => _openPrivateChatWithMember(
+                      phone,
+                      displayName,
+                      profilePic,
+                    ),
                   ),
-                const Icon(Icons.more_vert_rounded, color: Colors.grey, size: 20),
+                const Icon(
+                  Icons.more_vert_rounded,
+                  color: Colors.grey,
+                  size: 20,
+                ),
               ],
             )
           : (!isMe && phone.isNotEmpty
-              ? IconButton(
-                  icon: const Icon(Icons.chat_bubble_outline_rounded, color: _primaryColor, size: 20),
-                  tooltip: 'Chat Pribadi',
-                  onPressed: () => _openPrivateChatWithMember(phone, displayName, profilePic),
-                )
-              : null),
+                ? IconButton(
+                    icon: const Icon(
+                      Icons.chat_bubble_outline_rounded,
+                      color: _primaryColor,
+                      size: 20,
+                    ),
+                    tooltip: 'Chat Pribadi',
+                    onPressed: () => _openPrivateChatWithMember(
+                      phone,
+                      displayName,
+                      profilePic,
+                    ),
+                  )
+                : null),
     );
   }
 
-  Future<void> _openPrivateChatWithMember(String phone, String name, dynamic pic) async {
+  Future<void> _openPrivateChatWithMember(
+    String phone,
+    String name,
+    dynamic pic,
+  ) async {
     final localRoomId = await DatabaseHelper().getLocalRoomId(phone);
     if (!mounted) return;
     Navigator.push(
@@ -1940,7 +2575,9 @@ class RoomMediaGalleryScreen extends StatelessWidget {
     final imagesAndVideos = mediaList
         .where((m) => m['media_type'] == 'image' || m['media_type'] == 'video')
         .toList();
-    final documents = mediaList.where((m) => m['media_type'] == 'file').toList();
+    final documents = mediaList
+        .where((m) => m['media_type'] == 'file')
+        .toList();
     final audios = mediaList.where((m) => m['media_type'] == 'audio').toList();
 
     return DefaultTabController(
@@ -1951,7 +2588,10 @@ class RoomMediaGalleryScreen extends StatelessWidget {
           backgroundColor: _primaryColor,
           foregroundColor: Colors.white,
           elevation: 0,
-          title: Text('Media: $chatTitle', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          title: Text(
+            'Media: $chatTitle',
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
           bottom: const TabBar(
             indicatorColor: Colors.white,
             indicatorWeight: 3,
@@ -1976,9 +2616,17 @@ class RoomMediaGalleryScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildImagesAndVideosGrid(BuildContext context, List<Map<String, dynamic>> items) {
+  Widget _buildImagesAndVideosGrid(
+    BuildContext context,
+    List<Map<String, dynamic>> items,
+  ) {
     if (items.isEmpty) {
-      return const Center(child: Text('Belum ada foto atau video', style: TextStyle(color: Colors.grey)));
+      return const Center(
+        child: Text(
+          'Belum ada foto atau video',
+          style: TextStyle(color: Colors.grey),
+        ),
+      );
     }
 
     return GridView.builder(
@@ -2000,9 +2648,11 @@ class RoomMediaGalleryScreen extends StatelessWidget {
               context,
               PageRouteBuilder(
                 transitionDuration: const Duration(milliseconds: 300),
-                pageBuilder: (context, animation, secondaryAnimation) => FullMediaPreviewScreen(mediaItem: item),
-                transitionsBuilder: (context, animation, secondaryAnimation, child) =>
-                    FadeTransition(opacity: animation, child: child),
+                pageBuilder: (context, animation, secondaryAnimation) =>
+                    FullMediaPreviewScreen(mediaItem: item),
+                transitionsBuilder:
+                    (context, animation, secondaryAnimation, child) =>
+                        FadeTransition(opacity: animation, child: child),
               ),
             );
           },
@@ -2023,7 +2673,11 @@ class RoomMediaGalleryScreen extends StatelessWidget {
                   Container(
                     color: Colors.black26,
                     child: const Center(
-                      child: Icon(Icons.play_circle_fill, color: Colors.white, size: 36),
+                      child: Icon(
+                        Icons.play_circle_fill,
+                        color: Colors.white,
+                        size: 36,
+                      ),
                     ),
                   ),
               ],
@@ -2034,22 +2688,30 @@ class RoomMediaGalleryScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildDocumentsList(BuildContext context, List<Map<String, dynamic>> items) {
+  Widget _buildDocumentsList(
+    BuildContext context,
+    List<Map<String, dynamic>> items,
+  ) {
     if (items.isEmpty) {
-      return const Center(child: Text('Belum ada dokumen', style: TextStyle(color: Colors.grey)));
+      return const Center(
+        child: Text('Belum ada dokumen', style: TextStyle(color: Colors.grey)),
+      );
     }
 
     return ListView.separated(
       padding: const EdgeInsets.all(12),
       itemCount: items.length,
-      separatorBuilder: (context, index) => const Divider(color: Color(0xFFE5E7EB)),
+      separatorBuilder: (context, index) =>
+          const Divider(color: Color(0xFFE5E7EB)),
       itemBuilder: (context, index) {
         final item = items[index];
         final fileName = (item['media_url'] ?? '').toString().split('/').last;
 
         return ListTile(
           tileColor: Colors.white,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
           leading: Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
@@ -2060,7 +2722,11 @@ class RoomMediaGalleryScreen extends StatelessWidget {
           ),
           title: Text(
             fileName.isNotEmpty ? fileName : 'Dokumen ${index + 1}',
-            style: const TextStyle(color: Colors.black87, fontSize: 14, fontWeight: FontWeight.w500),
+            style: const TextStyle(
+              color: Colors.black87,
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+            ),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
@@ -2073,20 +2739,31 @@ class RoomMediaGalleryScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildAudiosList(BuildContext context, List<Map<String, dynamic>> items) {
+  Widget _buildAudiosList(
+    BuildContext context,
+    List<Map<String, dynamic>> items,
+  ) {
     if (items.isEmpty) {
-      return const Center(child: Text('Belum ada pesan audio', style: TextStyle(color: Colors.grey)));
+      return const Center(
+        child: Text(
+          'Belum ada pesan audio',
+          style: TextStyle(color: Colors.grey),
+        ),
+      );
     }
 
     return ListView.separated(
       padding: const EdgeInsets.all(12),
       itemCount: items.length,
-      separatorBuilder: (context, index) => const Divider(color: Color(0xFFE5E7EB)),
+      separatorBuilder: (context, index) =>
+          const Divider(color: Color(0xFFE5E7EB)),
       itemBuilder: (context, index) {
         final item = items[index];
         return ListTile(
           tileColor: Colors.white,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
           leading: Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
@@ -2097,7 +2774,11 @@ class RoomMediaGalleryScreen extends StatelessWidget {
           ),
           title: Text(
             'Pesan Suara ${index + 1}',
-            style: const TextStyle(color: Colors.black87, fontSize: 14, fontWeight: FontWeight.w500),
+            style: const TextStyle(
+              color: Colors.black87,
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+            ),
           ),
           subtitle: Text(
             item['created_at']?.toString().split('T').first ?? '',
@@ -2167,15 +2848,21 @@ class _FullMediaPreviewScreenState extends State<FullMediaPreviewScreen> {
       ),
       body: Center(
         child: isVideo
-            ? (_chewieController != null && _chewieController!.videoPlayerController.value.isInitialized
-                ? Chewie(controller: _chewieController!)
-                : const CircularProgressIndicator())
+            ? (_chewieController != null &&
+                      _chewieController!
+                          .videoPlayerController
+                          .value
+                          .isInitialized
+                  ? Chewie(controller: _chewieController!)
+                  : const CircularProgressIndicator())
             : InteractiveViewer(
                 child: CachedNetworkImage(
                   imageUrl: url,
                   fit: BoxFit.contain,
-                  placeholder: (context, url) => const CircularProgressIndicator(),
-                  errorWidget: (context, url, error) => const Icon(Icons.error, color: Colors.white),
+                  placeholder: (context, url) =>
+                      const CircularProgressIndicator(),
+                  errorWidget: (context, url, error) =>
+                      const Icon(Icons.error, color: Colors.white),
                 ),
               ),
       ),
